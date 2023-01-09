@@ -45,4 +45,6 @@ interface IGmxHelper {
     ) external view returns (uint256);
 
     function getDelta(address _indexToken, uint256 _size, uint256 _avgPrice) external view returns (bool, uint256);
+
+    function validateMaxGlobalShortSize(address _indexToken, uint256 _sizeDelta) external view returns (bool);
 }

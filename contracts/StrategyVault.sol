@@ -632,13 +632,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
     function buyGlp(uint256 _amount) public onlyKeepers returns (uint256) {
         emit BuyGlp(_amount);
-        //TODO: improve slippage
         return IRewardRouter(glpRewardRouter).mintAndStakeGlp(want, _amount, 0, 0);
     }
 
     function sellGlp(uint256 _amount, address _recipient) public onlyKeepers returns (uint256) {
         emit SellGlp(_amount, _recipient);
-        //TODO: improve slippage
         return IRewardRouter(glpRewardRouter).unstakeAndRedeemGlp(want, _amount, 0, _recipient);
     }
 
@@ -647,10 +645,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         uint256 _amountIn,
         uint256 _sizeDelta
     ) public payable onlyKeepers {
+        require(IGmxHelper(gmxHelper).validateMaxGlobalShortSize(_indexToken, _sizeDelta), "StrategyVault: max global shorts exceeded");
+
         address[] memory path = new address[](1);
         path[0] = want;
 
-        //TODO: can improve minOut and acceptablePrcie
         IPositionRouter(positionRouter).createIncreasePosition{value: executionFee}(
             path,
             _indexToken,
@@ -676,7 +675,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         address[] memory path = new address[](1);
         path[0] = want;
 
-        //TODO: can improve acceptablePrice and minOut
         IPositionRouter(positionRouter).createDecreasePosition{value: executionFee}(
             path,
             _indexToken,

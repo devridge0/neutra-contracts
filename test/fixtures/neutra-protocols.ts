@@ -7,6 +7,7 @@ const gmxHelperConfig = [
     addr.GMX.glp,
     addr.GMX.fsGlp,
     addr.GMX.GlpManager,
+    addr.GMX.PositionRouter,
     addr.GMX.usdg
 ]
 

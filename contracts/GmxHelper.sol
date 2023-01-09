@@ -6,14 +6,14 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {IVault as IGmxVault} from "./interfaces/gmx/IVault.sol";
 import {IRewardTracker} from "./interfaces/gmx/IRewardTracker.sol";
 import {IGlpManager} from "./interfaces/gmx/IGlpManager.sol";
+import {IPositionRouter} from "./interfaces/gmx/IPositionRouter.sol";
 
 struct GmxConfig {
     address vault;
     address glp;
     address fsGlp;
-    // address fGlp;
-    // address sbfGmx;
     address glpManager;
+    address positionRouter;
     address usdg;
 }
 
@@ -29,10 +29,9 @@ contract GmxHelper {
     address public gmxVault;
     address public glp;
     address public fsGlp;
-    // address public fGlp;
     address public nGlp;
-    // address public sbfGmx;
     address public glpManager;
+    address public positionRouter;
     address public usdg;
 
     modifier onlyGov() {
@@ -48,9 +47,8 @@ contract GmxHelper {
         gmxVault = _config.vault;
         glp = _config.glp;
         fsGlp = _config.fsGlp;
-        // fGlp = _config.fGlp;
-        // sbfGmx = _config.sbfGmx;
         glpManager = _config.glpManager;
+        positionRouter = _config.positionRouter;
 
         nGlp = _nGlp;
         want = _want;
@@ -162,11 +160,6 @@ contract GmxHelper {
         return IGmxVault(gmxVault).getFundingFee(want, size, _fundingRate);
     }
 
-    // function claimableRewards(address _account) public view returns (uint256) {
-    //     uint256 rewards = IRewardTracker(fGlp).claimable(_account);
-    //     return rewards + IRewardTracker(sbfGmx).claimable(_account);
-    // }
-
     function getLastFundingTime() public view returns (uint256) {
         return IGmxVault(gmxVault).lastFundingTimes(want);
     }
@@ -214,5 +207,11 @@ contract GmxHelper {
 
     function getRedemptionAmount(address _token, uint256 _usdgAmount) public view returns (uint256) {
         return IGmxVault(gmxVault).getRedemptionAmount(_token, _usdgAmount);
+    }
+
+    function validateMaxGlobalShortSize(address _indexToken, uint256 _sizeDelta) public view returns (bool) {
+        uint256 maxGlobalShortSize = IPositionRouter(positionRouter).maxGlobalShortSizes(_indexToken);
+        uint256 globalShortSize = IGmxVault(gmxVault).globalShortSizes(_indexToken);
+        return maxGlobalShortSize > (globalShortSize + _sizeDelta);    
     }
 }
