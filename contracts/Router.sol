@@ -107,9 +107,9 @@ contract Router is ReentrancyGuard, Governable {
     After positions execution, requires to confirm those postiions
     If positions executed successfully, handles glp
     */
-    function confirmAndBuy(address _recipient) external onlyHandler returns (uint256) {
+    function confirmAndBuy(uint256 _wantAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmountsWant = pendingAmounts[want];
-        require(pendingAmountsWant > 0, "Router: no pending amounts to buy");
+        require(pendingAmountsWant == _wantAmount, "Router: want amount different with pending amount");
         IStrategyVault _vault = IStrategyVault(strategyVault);
         _vault.confirm();
 
@@ -136,7 +136,7 @@ contract Router is ReentrancyGuard, Governable {
     After positions execution, requires to confirm those postiions
     If positions executed successfully, handles glp
     */
-    function confirmAndSell(address _recipient) external onlyHandler returns (uint256) {
+    function confirmAndSell(uint256 _glpAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmount = pendingAmounts[nGlp];
         require(pendingAmount > 0, "Router: no pending amounts to sell");
         IStrategyVault _vault = IStrategyVault(strategyVault);
@@ -145,7 +145,7 @@ contract Router is ReentrancyGuard, Governable {
 
         uint256 collateralIn = IERC20(want).balanceOf(address(this)) - wantBeforeCollateralIn;
 
-        uint256 amountOut = _vault.sellNeuGlp(pendingAmount, address(this));
+        uint256 amountOut = _vault.sellNeuGlp(_glpAmount, address(this));
         IMintable(nGlp).burn(address(this), pendingAmount);
         
         pendingAmounts[nGlp] = 0;

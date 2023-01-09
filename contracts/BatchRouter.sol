@@ -198,10 +198,10 @@ contract BatchRouter is Governable {
         executed = true; 
     }
 
-    function confirmAndDealGlp(bool _isWithdraw) external onlyGov {
+    function confirmAndDealGlp(uint256 _amount, bool _isWithdraw) external onlyGov {
         require(executed, "BatchRouter: executes positions first");
         if (!_isWithdraw) {
-            uint256 amountOut = IRouter(router).confirmAndBuy(address(this));
+            uint256 amountOut = IRouter(router).confirmAndBuy(_amount, address(this));
 
             _updateRewards();
 
@@ -213,7 +213,7 @@ contract BatchRouter is Governable {
             totalSnGlpReceivedAmount += amountOut;
             currentDepositRound += 1;
         } else {
-            uint256 amountOut = IRouter(router).confirmAndSell(address(this));
+            uint256 amountOut = IRouter(router).confirmAndSell(_amount, address(this));
             totalWantReceivedPerRound[currentWithdrawRound] = amountOut;
             totalWantReceivedAmount += amountOut;
             currentWithdrawRound += 1;

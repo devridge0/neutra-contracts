@@ -408,14 +408,14 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return value;
     }
 
-    function sellNeuGlp(uint256 _amountIn, address _recipient) external onlyRouter returns (uint256) {
+    function sellNeuGlp(uint256 _glpAmount, address _recipient) external onlyRouter returns (uint256) {
         require(confirmed, "StrategyVault: not confirmed yet");
 
-        uint256 amountOut = sellGlp(_amountIn, _recipient); 
+        uint256 amountOut = sellGlp(_glpAmount, _recipient); 
   
         _revokePreviousPosition();
 
-        emit SellNeuGlp(_amountIn, amountOut, _recipient);
+        emit SellNeuGlp(_glpAmount, amountOut, _recipient);
 
         return amountOut;
     }

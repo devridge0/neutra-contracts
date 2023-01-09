@@ -9,7 +9,7 @@ interface IRouter {
         bool _isWithdraw
     ) external payable;
 
-    function confirmAndBuy(address _recipient) external returns (uint256);
+    function confirmAndBuy(uint256 _wantAmount, address _recipient) external returns (uint256);
 
-    function confirmAndSell(address _recipient) external returns (uint256);
+    function confirmAndSell(uint256 _glpAmount, address _recipient) external returns (uint256);
 }

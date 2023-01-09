@@ -25,7 +25,7 @@ interface IStrategyVault {
 
     function buyNeuGlp(uint256 _amountIn) external returns (uint256);
 
-    function sellNeuGlp(uint256 _amountIn, address _recipient) external returns (uint256);
+    function sellNeuGlp(uint256 _glpAmount, address _recipient) external returns (uint256);
 
     function settle(uint256 _amount, address _recipient) external;
 }

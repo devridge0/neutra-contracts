@@ -92,7 +92,7 @@ describe('batchRouter-functions', () => {
             10000
         )
 
-        await batchRouter.confirmAndDealGlp(false);
+        await batchRouter.confirmAndDealGlp(expandDecimals(162000, 18), false);
         expect(await batchRouter.currentDepositRound()).eq(2);
     }
     )
@@ -162,7 +162,7 @@ describe('batchRouter-functions', () => {
             10000
         )
         
-        await batchRouter.confirmAndDealGlp(true);
+        await batchRouter.confirmAndDealGlp(expandDecimals(24300, 18), true);
     })
 
     it('claims want', async () => {
