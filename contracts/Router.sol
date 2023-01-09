@@ -31,16 +31,10 @@ contract Router is ReentrancyGuard, Governable {
     mapping(address => bool) public isHandler;
     mapping(address => uint256) public pendingAmounts;
 
-    event ApproveToken(address token, address spender);
-    event SetHandler(address handler, bool isActive);
     event ExecutePositionsBeforeDealGlpDeposit(uint256 amount, uint256 pendingAmountsWant);
     event ExecutePositionsBeforeDealGlpWithdraw(uint256 amount, uint256 wantBeforeCollateralIn);
-    event ConfirmAndBuy(uint256 pendingAmountsWant, uint256 mintAmount);
-    event ConfirmAndSell(uint256 pendingAmountsNGlp);
-    event SetExecutionFee(uint256 fee);
-    event SetIsSale(bool isActive);
-    event SetTrackers(address feeNeuGlpTracker, address stakedNeuGlpTracker);
-
+    event ConfirmAndBuy(uint256 wantPendingAmount, uint256 mintAmount);
+    event ConfirmAndSell(uint256 snGlpPendingAmount);
 
     modifier onlyHandler() {
         _onlyHandler();
@@ -63,12 +57,10 @@ contract Router is ReentrancyGuard, Governable {
 
     function approveToken(address _token, address _spender) external onlyGov {
         IERC20(_token).approve(_spender, type(uint256).max);
-        emit ApproveToken(_token, _spender);
     } 
 
     function setHandler(address _handler, bool _isActive) external onlyGov {
         isHandler[_handler] = _isActive;
-        emit SetHandler(_handler, _isActive);
     }
 
     /*
@@ -147,7 +139,7 @@ contract Router is ReentrancyGuard, Governable {
 
         uint256 amountOut = _vault.sellNeuGlp(_glpAmount, address(this));
         IMintable(nGlp).burn(address(this), pendingAmount);
-        
+
         pendingAmounts[nGlp] = 0;
 
         amountOut += collateralIn;
@@ -170,18 +162,14 @@ contract Router is ReentrancyGuard, Governable {
     
     function setExecutionFee(uint256 _fee) external onlyGov {
         executionFee = _fee;
-        emit SetExecutionFee(_fee);
     }
 
     function setIsSale(bool _isActive) external onlyGov {
         isSale = _isActive;
-        emit SetIsSale(_isActive);
     }
 
     function setTrackers(address _feeNeuGlpTracker, address _stakedNeuGlpTracker) external onlyGov {
         feeNeuGlpTracker = _feeNeuGlpTracker;
         stakedNeuGlpTracker = _stakedNeuGlpTracker;
-        emit SetTrackers(_feeNeuGlpTracker, _stakedNeuGlpTracker);
     }
-
 }

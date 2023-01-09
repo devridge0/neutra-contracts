@@ -100,11 +100,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     mapping(address => bool) public routers;
     mapping(address => bool) public keepers;
 
-    event MinimiseDeltaWithBuyGlp();
-    event MinimiseDeltaWithSellGlp();
-    event ExecuteIncreasePositions();
-    event ExecuteDecreasePositions();
-    event RetryPositions();
+    event RebalanceActions(uint256 timestamp, bool isBuy, bool hasWbtcIncrease, bool hasWbtcDecrease, bool hasWethIncrease, bool hasWethDecrease);
     event BuyNeuGlp(uint256 amountIn, uint256 amountOut, uint256 value);
     event SellNeuGlp(uint256 amountIn, uint256 amountOut, address recipient);
     event Confirm();
@@ -117,15 +113,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     event SellGlp(uint256 amount, address recipient);
     event IncreaseShortPosition(address _indexToken, uint256 _amountIn, uint256 _sizeDelta);
     event DecreaseShortPosition(address _indexToken, uint256 _collateralDelta, uint256 _sizeDelta, address _recipient);
-    event SetGmxHelper(address helper);
-    event SetKeeper(address indexed keeper, bool isActive);
-    event SetWant(address want);
-    event SetExecutionFee(uint256 executionFee);
-    event SetCallbackTarget(address callbackTarget);
-    event SetDepositLimit(uint256 limit);
-    event SetRouter(address router, bool isActive);
-    event SetManagement(address management, uint256 fee);
-    event RegisterAndSetReferralCode(string text);
     event RepayUnpaidFundingFee(uint256 unpaidFundingFeeWbtc, uint256 unpaidFundingFeeWeth);
     event WithdrawFees(uint256 amount, address receiver);
     event WithdrawInsuranceFund(uint256 amount, address receiver);
@@ -196,6 +183,10 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         _harvest();
         
+        bool hasWbtcIncrease;
+        bool hasWbtcDecrease;
+        bool hasWethIncrease;
+        bool hasWethDecrease;
         // save current balance of want to track debt cost after rebalance; 
         confirmList.beforeWantBalance = IERC20(want).balanceOf(address(this));
 
@@ -221,19 +212,33 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
                 pendingPositionInfo.fundingFee += fundingFee;
 
-                // add additional funding fee here to save execution fee
-                increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                if (amountIn + fundingFee > 0 && sizeDelta > 0) {
+                    // add additional funding fee here to save execution fee
+                    if (indexToken == wbtc) {
+                        hasWbtcIncrease = true;
+                    } else {
+                        hasWethIncrease = true;
+                    }
+                    increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                }
                 continue;
             }
 
-            // call remainig actions
-            (bool success, )=address(this).call(abi.encodePacked(selector, param));
-            require(success, "StrategyVault: call execution failed");
+            // call remainig actions should be decrease action
+            (address indexToken, uint256 collateralDelta, uint256 sizeDelta, address recipient) = abi.decode(param, (address, uint256, uint256, address));
+
+            if (indexToken == wbtc) {
+                hasWbtcDecrease = true;
+            } else {
+                hasWethDecrease = true;
+            }
+
+            decreaseShortPosition(indexToken, collateralDelta, sizeDelta, recipient);
         }
 
         _requireConfirm();
 
-        emit MinimiseDeltaWithBuyGlp();
+        emit RebalanceActions(block.timestamp, true, hasWbtcIncrease, hasWbtcDecrease, hasWethIncrease, hasWethDecrease);
     }
 
     /// @dev rebalance init function
@@ -248,6 +253,10 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         _harvest();
         
+        bool hasWbtcIncrease;
+        bool hasWbtcDecrease;
+        bool hasWethIncrease;
+        bool hasWethDecrease;
         // save current balance of want to track debt cost after rebalance; 
         confirmList.beforeWantBalance = IERC20(want).balanceOf(address(this));
 
@@ -273,19 +282,33 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
                 pendingPositionInfo.fundingFee += fundingFee;
 
-                // add additional funding fee here to save execution fee
-                increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                if (amountIn + fundingFee > 0 && sizeDelta > 0) {
+                    if (indexToken == wbtc) {
+                        hasWbtcIncrease = true;
+                    } else {
+                        hasWethIncrease = true;
+                    }
+                    // add additional funding fee here to save execution fee
+                    increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                }
                 continue;
             }
 
-            // call remainig actions
-            (bool success, ) = address(this).call(abi.encodePacked(selector, param));
-            require(success, "StrategyVault: call execution failed");
+            // remainig actions should be decrease action
+            (address indexToken, uint256 collateralDelta, uint256 sizeDelta, address recipient) = abi.decode(param, (address, uint256, uint256, address));
+            
+            if (indexToken == wbtc) {
+                hasWbtcDecrease = true;
+            } else {
+                hasWethDecrease = true;
+            }
+
+            decreaseShortPosition(indexToken, collateralDelta, sizeDelta, recipient);
         }
 
         _requireConfirm();
 
-        emit MinimiseDeltaWithSellGlp();
+        emit RebalanceActions(block.timestamp, false, hasWbtcIncrease, hasWbtcDecrease, hasWethIncrease, hasWethDecrease);
     }
     
     /// @dev deposit init function 
@@ -318,7 +341,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         }
         _requireConfirm();
 
-        emit ExecuteIncreasePositions();
     }
 
     /// @dev withdraw init function
@@ -355,7 +377,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         }
         _requireConfirm();
 
-        emit ExecuteDecreasePositions();
     }
 
     /// @dev should be called only if positions execution had been failed
@@ -385,7 +406,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             (bool success, ) = address(this).call(abi.encodePacked(selector, param));
             require(success, "StrategyVault: call execution failed");
         }
-        emit RetryPositions();
     }
 
     function buyNeuGlp(uint256 _amountIn) external onlyRouter returns (uint256) {
@@ -694,7 +714,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
     function setGmxHelper(address _helper) external onlyGov {
         gmxHelper = _helper;
-        emit SetGmxHelper(_helper);
     }
 
     function setMarginFeeBasisPoints(uint256 _bps) external onlyGov {
@@ -703,42 +722,33 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
     function setKeeper(address _keeper, bool _isActive) external onlyGov {
         keepers[_keeper] = _isActive;
-        emit SetKeeper(_keeper, _isActive);
     }
 
     function setWant(address _want) external onlyGov {
         want = _want;
         IERC20(want).approve(glpManager, type(uint256).max);
         IERC20(want).approve(gmxRouter, type(uint256).max);
-
-        emit SetWant(_want);
     }
 
     function setExecutionFee(uint256 _executionFee) external onlyGov {
         executionFee = _executionFee;
-        emit SetExecutionFee(_executionFee);
     }
 
     function setCallbackTarget(address _callbackTarget) external onlyGov {
         callbackTarget = _callbackTarget;
-        emit SetCallbackTarget(_callbackTarget);
     }
 
     function setDepositLimit(uint256 _limit) external onlyGov {
         depositLimit = _limit;
-        emit SetDepositLimit(_limit);
     }
 
     function setRouter(address _router, bool _isActive) external onlyGov {
         routers[_router] = _isActive;
-        emit SetRouter(_router, _isActive);
     }
 
     function setManagement(address _management, uint256 _fee) external onlyGov {
         management = _management;
         managementFee =_fee;
-
-        emit SetManagement(_management, _fee);
     }
 
     function registerAndSetReferralCode(string memory _text) public onlyGov {
@@ -747,8 +757,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         IReferralStorage(referralStorage).registerCode(stringToByte32);
         IReferralStorage(referralStorage).setTraderReferralCodeByUser(stringToByte32);
         referralCode = stringToByte32;
-
-        emit RegisterAndSetReferralCode(_text);
     }
 
     function totalValue() external view returns (uint256) {
