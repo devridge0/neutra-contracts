@@ -49,7 +49,7 @@ contract GmxHelper {
         fsGlp = _config.fsGlp;
         glpManager = _config.glpManager;
         positionRouter = _config.positionRouter;
-
+        
         nGlp = _nGlp;
         want = _want;
         wbtc = _wbtc;
@@ -210,8 +210,11 @@ contract GmxHelper {
     }
 
     function validateMaxGlobalShortSize(address _indexToken, uint256 _sizeDelta) public view returns (bool) {
+        if (_sizeDelta == 0) {
+            return true;
+        }
         uint256 maxGlobalShortSize = IPositionRouter(positionRouter).maxGlobalShortSizes(_indexToken);
         uint256 globalShortSize = IGmxVault(gmxVault).globalShortSizes(_indexToken);
-        return maxGlobalShortSize > (globalShortSize + _sizeDelta);    
+        return maxGlobalShortSize > (globalShortSize + _sizeDelta);
     }
 }
