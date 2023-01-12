@@ -35,7 +35,11 @@ contract Router is ReentrancyGuard, Governable {
     event ExecutePositionsBeforeDealGlpWithdraw(uint256 amount, uint256 wantBeforeCollateralIn);
     event ConfirmAndBuy(uint256 wantPendingAmount, uint256 mintAmount);
     event ConfirmAndSell(uint256 snGlpPendingAmount);
-
+    event SetTrackers(address feeNeuGlpTracker, address stakedNeuGlpTracker);
+    event SetExecutionFee(uint256 executionFee);
+    event SetSale(bool isActive);
+    event SetHandler(address handler, bool isActive);
+    
     modifier onlyHandler() {
         _onlyHandler();
         _;
@@ -52,15 +56,23 @@ contract Router is ReentrancyGuard, Governable {
     }
 
     function _onlyHandler() internal view {
-        require(isHandler[msg.sender], "StrategyVault: not router");
+        require(isHandler[msg.sender], "Router: forbidden");
     }
 
     function approveToken(address _token, address _spender) external onlyGov {
         IERC20(_token).approve(_spender, type(uint256).max);
     } 
 
-    function setHandler(address _handler, bool _isActive) external onlyGov {
+    function setHandler(address _handler, bool _isActive) public onlyGov {
+        require(_handler != address(0), "Router: invalid address");
         isHandler[_handler] = _isActive;
+        emit SetHandler(_handler, _isActive);
+    }
+
+    function setHandlers(address[] memory _handler, bool[] memory _isActive) external onlyGov {
+        for(uint256 i = 0; i < _handler.length; i++){
+            setHandler(_handler[i], _isActive[i]);
+        }
     }
 
     /*
@@ -162,14 +174,18 @@ contract Router is ReentrancyGuard, Governable {
     
     function setExecutionFee(uint256 _fee) external onlyGov {
         executionFee = _fee;
+        emit SetExecutionFee(_fee);
     }
 
-    function setIsSale(bool _isActive) external onlyGov {
+    function setSale(bool _isActive) external onlyGov {
         isSale = _isActive;
+        emit SetSale(_isActive);
     }
 
     function setTrackers(address _feeNeuGlpTracker, address _stakedNeuGlpTracker) external onlyGov {
+        require(_feeNeuGlpTracker != address(0) && _stakedNeuGlpTracker != address(0), "BatchRouter: invalid address");
         feeNeuGlpTracker = _feeNeuGlpTracker;
         stakedNeuGlpTracker = _stakedNeuGlpTracker;
+        emit SetTrackers(_feeNeuGlpTracker, _stakedNeuGlpTracker);
     }
 }
