@@ -2,7 +2,7 @@ import { deployments } from "hardhat";
 import addr from "../../shared/constants/addresses";
 import { deployContract, expandDecimals } from "../../shared/utils";
 
-const gmxHelperConfig = [
+export const gmxHelperConfig = [
     addr.GMX.Vault,
     addr.GMX.glp,
     addr.GMX.fsGlp,
@@ -11,7 +11,7 @@ const gmxHelperConfig = [
     addr.GMX.usdg
 ]
 
-const strategyVaultConfig = [
+export const strategyVaultConfig = [
     addr.GMX.GlpManager,
     addr.GMX.PositionRouter,
     addr.GMX.RewardRouter,
@@ -40,9 +40,9 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
     const stakedNeuTracker = await deployContract("StakedNeuTracker", []);
     const stakedNeuGlpTracker = await deployContract("StakedNeuGlpTracker", []);
     const bonusDistributor = await deployContract("BonusDistributor", [bnNEU.address, bonusNeuTracker.address]);
-    const feeNeuDistributor = await deployContract("RewardDistributor", [esNEU.address, stakedNeuTracker.address]);
+    const feeNeuDistributor = await deployContract("RewardDistributor", [addr.DAI, feeNeuTracker.address]);
     const feeNeuGlpDistributor = await deployContract("RewardDistributor", [addr.DAI, feeNeuGlpTracker.address]);
-    const stakedNeuDistributor = await deployContract("RewardDistributor", [addr.DAI, feeNeuTracker.address]);
+    const stakedNeuDistributor = await deployContract("RewardDistributor", [esNEU.address, stakedNeuTracker.address]);
     const stakedNeuGlpDistributor = await deployContract("RewardDistributor", [esNEU.address, stakedNeuGlpTracker.address]);
     const vesterNeu = await deployContract(
         "Vester",
@@ -73,7 +73,9 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
     const strategyVault = await hre.upgrades.deployProxy(StrategyVault, [strategyVaultConfig], { kind: "uups" });
     const gmxHelper = await deployContract("GmxHelper", [gmxHelperConfig, nGlp.address, addr.DAI, addr.WBTC, addr.WETH]);
     const router = await deployContract("Router", [strategyVault.address, addr.DAI, addr.WBTC, addr.WETH, nGlp.address]);
-    const batchRouter = await deployContract("BatchRouter", [addr.DAI, nGlp.address, esNEU.address]);
+    const BatchRouter = await hre.ethers.getContractFactory("BatchRouter");
+    const batchRouter = await hre.upgrades.deployProxy(BatchRouter, [addr.DAI, nGlp.address, esNEU.address], {kind: "uups"});
+    const esNEUManager = await deployContract("EsNEUManager", [esNEU.address, vesterNeu.address]);
 
 
     // initialize tracker
@@ -102,66 +104,64 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
     /* ##################################################################
                             vester settings
     ################################################################## */
-    await vesterNeu.setHandler(rewardRouter.address, true);
-    await vesterNGlp.setHandler(rewardRouter.address, true);
+    await vesterNeu.setHandlers([rewardRouter.address, esNEUManager.address], [true, true]);
+    await vesterNGlp.setHandlers([rewardRouter.address], [true]);
 
     /* ##################################################################
                             NEU settings
     ################################################################## */
-    await bnNEU.setHandler(feeNeuTracker.address, true);
+    await bnNEU.setHandlers([feeNeuTracker.address], [true]);
     await bnNEU.setMinter(rewardRouter.address, true);
-    await nGlp.setHandler(feeNeuGlpTracker.address, true);
+
+    await nGlp.setHandlers([
+        feeNeuGlpTracker.address,
+        router.address, 
+        batchRouter.address
+    ], [true, true, true]);
     await nGlp.setMinter(router.address, true);
-    await nGlp.setHandler(router.address, true);
-    await nGlp.setHandler(batchRouter.address, true);
     await nGlp.setMinter(strategyVault.address, true);
     await esNEU.setInPrivateTransferMode(true);
-    await esNEU.setHandler(batchRouter.address, true);
-    await esNEU.setHandler(rewardRouter.address, true);
-    await esNEU.setHandler(stakedNeuDistributor.address, true);
-    await esNEU.setHandler(stakedNeuGlpDistributor.address, true);
-    await esNEU.setHandler(stakedNeuGlpTracker.address, true);
-    await esNEU.setHandler(stakedNeuTracker.address, true);
-    await esNEU.setHandler(vesterNGlp.address, true);
-    await esNEU.setHandler(vesterNeu.address, true);
+
+    await esNEU.setHandlers([
+        batchRouter.address,
+        rewardRouter.address,
+        stakedNeuDistributor.address,
+        stakedNeuGlpDistributor.address,
+        stakedNeuGlpTracker.address,
+        stakedNeuTracker.address,
+        vesterNGlp.address,
+        vesterNeu.address,
+        esNEUManager.address
+    ], [true, true, true, true, true, true, true, true, true]);
     await esNEU.setMinter(vesterNGlp.address, true);
     await esNEU.setMinter(vesterNeu.address, true);
+    await esNEU.setMinter(esNEUManager.address, true);
 
     /* ##################################################################
                             tracker settings
     ################################################################## */
-    await stakedNeuTracker.setInPrivateStakingMode(true);
-    await stakedNeuTracker.setInPrivateTransferMode(true);
-    await bonusNeuTracker.setInPrivateStakingMode(true);
-    await bonusNeuTracker.setInPrivateTransferMode(true);
-    await bonusNeuTracker.setInPrivateClaimingMode(true);
-    await feeNeuTracker.setInPrivateStakingMode(true);
-    await feeNeuTracker.setInPrivateTransferMode(true);
-    await feeNeuGlpTracker.setInPrivateStakingMode(true);
-    await feeNeuGlpTracker.setInPrivateTransferMode(true);
-    await stakedNeuGlpTracker.setInPrivateStakingMode(true);
-    await stakedNeuGlpTracker.setInPrivateTransferMode(true);
     await bonusDistributor.updateLastDistributionTime();
     await bonusDistributor.setBonusMultiplier(10000);
     // stakedNeuTracker handler
-    await stakedNeuTracker.setHandler(rewardRouter.address, true);
-    await stakedNeuTracker.setHandler(bonusNeuTracker.address, true);
+    await stakedNeuTracker.setHandlers([rewardRouter.address, bonusNeuTracker.address], [true, true]);
     // bonusNeuTracker handler
-    await bonusNeuTracker.setHandler(rewardRouter.address, true);
-    await bonusNeuTracker.setHandler(feeNeuTracker.address, true);
+    await bonusNeuTracker.setHandlers([rewardRouter.address, feeNeuTracker.address], [true, true]);
     // feeNeuGlpTracker handler
-    await feeNeuGlpTracker.setHandler(stakedNeuGlpTracker.address, true);
-    await feeNeuGlpTracker.setHandler(rewardRouter.address, true);
-    await feeNeuGlpTracker.setHandler(router.address, true);
-    await feeNeuGlpTracker.setHandler(batchRouter.address, true);
+    await feeNeuGlpTracker.setHandlers([
+        stakedNeuGlpTracker.address,
+        rewardRouter.address,
+        router.address,
+        batchRouter.address
+    ], [true, true, true, true]);
     // feeNeuTracker handler
-    await feeNeuTracker.setHandler(vesterNeu.address, true);
-    await feeNeuTracker.setHandler(rewardRouter.address, true);
+    await feeNeuTracker.setHandlers([vesterNeu.address, rewardRouter.address], [true, true]);
     // stakedNeuGlpTracker handler
-    await stakedNeuGlpTracker.setHandler(rewardRouter.address, true);
-    await stakedNeuGlpTracker.setHandler(vesterNGlp.address, true);
-    await stakedNeuGlpTracker.setHandler(router.address, true);
-    await stakedNeuGlpTracker.setHandler(batchRouter.address, true);
+    await stakedNeuGlpTracker.setHandlers([
+        rewardRouter.address,
+        vesterNGlp.address,
+        router.address,
+        batchRouter.address
+    ], [true, true, true, true]);
     
     /* ##################################################################
                             strategyVault settings
@@ -174,7 +174,7 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
     ################################################################## */
     await router.setTrackers(feeNeuGlpTracker.address, stakedNeuGlpTracker.address);
     await router.setHandler(batchRouter.address, true);
-    await router.setIsSale(true);
+    await router.setSale(true);
 
     /* ##################################################################
                              batchRouter settings
@@ -206,6 +206,7 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
         strategyVault,
         gmxHelper,
         router,
-        batchRouter
+        batchRouter,
+        esNEUManager
     }
 })

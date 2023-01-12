@@ -78,7 +78,7 @@ describe('batchRouter-functions', () => {
         await batchRouter.executeBatchPositions(false, params,{value: EXECUTION_FEE * 2 });
 
         await expect(batchRouter.connect(user0).cancelDeposit(expandDecimals(45000, 18)))
-            .to.be.revertedWith("batchRouter: batch under execution");
+            .to.be.revertedWith("BatchRouter: batch under execution");
 
         const increaseIndex = await positionRouter.increasePositionRequestKeysStart();
         const decreaseIndex = await positionRouter.decreasePositionRequestKeysStart();
@@ -91,7 +91,7 @@ describe('batchRouter-functions', () => {
             2,
             10000
         )
-
+        
         await batchRouter.confirmAndDealGlp(expandDecimals(162000, 18), false);
         expect(await batchRouter.currentDepositRound()).eq(2);
     }
@@ -148,7 +148,7 @@ describe('batchRouter-functions', () => {
         await batchRouter.executeBatchPositions(true, params, { value : EXECUTION_FEE * 2});
 
         await expect(batchRouter.connect(user0).cancelWithdraw(expandDecimals(10000, 18)))
-            .to.be.revertedWith("batchRouter: batch under execution");
+            .to.be.revertedWith("BatchRouter: batch under execution");
 
         const increaseIndex = await positionRouter.increasePositionRequestKeysStart();
         const decreaseIndex = await positionRouter.decreasePositionRequestKeysStart();

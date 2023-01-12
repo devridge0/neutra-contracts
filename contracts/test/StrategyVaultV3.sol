@@ -47,7 +47,7 @@ struct PendingPositionInfo {
     uint256 fundingFee; // want decimals
 }
 
-contract StrategyVaultV2 is Initializable, UUPSUpgradeable {
+contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
     uint256 constant SECS_PER_YEAR = 31_536_000;
     uint256 constant MAX_BPS = 10_000;
     uint256 constant PRECISION = 1e30;
@@ -98,6 +98,10 @@ contract StrategyVaultV2 is Initializable, UUPSUpgradeable {
 
     mapping(address => bool) public routers;
     mapping(address => bool) public keepers;
+    mapping(address => uint256) public testMappings;
+    bytes8 public testBytes8;
+    uint256 public testUint256;
+
 
     event RebalanceActions(uint256 timestamp, bool isBuy, bool hasWbtcIncrease, bool hasWbtcDecrease, bool hasWethIncrease, bool hasWethDecrease);
     event BuyNeuGlp(uint256 amountIn, uint256 amountOut, uint256 value);
@@ -854,9 +858,10 @@ contract StrategyVaultV2 is Initializable, UUPSUpgradeable {
         payable(msg.sender).transfer(address(this).balance);
         emit WithdrawEth(address(this).balance);
     }
-    
-    function upgradeableTest() external pure returns (uint256) {
-        return 1;
-    }
 
+    function upgradeableTest() external pure returns (uint256) {
+        uint256 a = 1;
+        uint256 b = 1;
+        return a + b;
+    }
 }

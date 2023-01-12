@@ -77,7 +77,7 @@ async function main() {
     const FeeNeuGlpTracker = await hre.ethers.getContractFactory("FeeNeuGlpTracker");
     const feeNeuGlpTracker = await FeeNeuGlpTracker.deploy();
     await feeNeuGlpTracker.deployed();
-    console.log(`fnGlp address : ${feeNeuGlpTracker.address}`);
+    console.log(`feeNeuGlpTracker address : ${feeNeuGlpTracker.address}`);
 
     // 8. StakedNeuTracker
     const StakedNeuTracker = await hre.ethers.getContractFactory("StakedNeuTracker");
@@ -89,7 +89,7 @@ async function main() {
     const StakedNeuGlpTracker = await hre.ethers.getContractFactory("StakedNeuGlpTracker");
     const stakedNeuGlpTracker = await StakedNeuGlpTracker.deploy();
     await stakedNeuGlpTracker.deployed();
-    console.log(`snGlp address : ${stakedNeuGlpTracker.address}`)
+    console.log(`stakedNeuGlpTracker address : ${stakedNeuGlpTracker.address}`)
 
     // 10. BonusDistributor
     const BonusDistributor = await hre.ethers.getContractFactory("BonusDistributor");
@@ -103,11 +103,11 @@ async function main() {
     // 11. FeeNeuDistributor
     const FeeNeuDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const feeNeuDistributor = await FeeNeuDistributor.deploy(
-        esNEU.address,
-        stakedNeuTracker.address
+        addr.DAI,
+        feeNeuTracker.address
     );
     await feeNeuDistributor.deployed();
-    console.log(`esNeuRewardDistributor address : ${feeNeuDistributor.address}`);
+    console.log(`feeNeuDistributor address : ${feeNeuDistributor.address}`);
 
     // 12. FeeNeuGlpDistributor
     const FeeNeuGlpDistributor = await hre.ethers.getContractFactory("RewardDistributor");
@@ -118,8 +118,8 @@ async function main() {
     // 13. StakedNeuDistributor (DAI - NEU)
     const StakedNeuDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const stakedNeuDistributor = await StakedNeuDistributor.deploy(
-        addr.DAI,
-        feeNeuTracker.address
+        esNEU.address,
+        stakedNeuTracker.address
     );
     await stakedNeuDistributor.deployed();
     console.log(`stakedNeuDistributor address : ${stakedNeuDistributor.address}`);
@@ -184,9 +184,15 @@ async function main() {
 
     // 21. BatchRouter
     const BatchRouter = await hre.ethers.getContractFactory("BatchRouter");
-    const batchRouter = await BatchRouter.deploy(addr.DAI, nGlp.address, esNEU.address);
+    const batchRouter = await hre.upgrades.deployProxy(BatchRouter, [addr.DAI, nGlp.address, esNEU.address], {kind: "uups"});
     await batchRouter.deployed();
     console.log(`batchRouter address : ${batchRouter.address}`);
+
+    // 22. EsNEUManager
+    const EsNEUManager = await hre.ethers.getContractFactory("EsNEUManager");
+    const esNEUManager = await EsNEUManager.deploy(esNEU.address, vesterNeu.address);
+    await esNEUManager.deployed();
+    console.log(`esNEUManager address : ${esNEUManager.address}`);
 
     // initialize tracker
     let tx = await feeNeuGlpTracker.initialize([nGlp.address], feeNeuGlpDistributor.address);
@@ -224,31 +230,29 @@ async function main() {
     /* ##################################################################
                             vester settings
     ################################################################## */
-    tx = await vesterNeu.setHandler(rewardRouter.address, true);
+    tx = await vesterNeu.setHandlers([rewardRouter.address, esNEUManager.address], [true, true]);
     await tx.wait();
 
-    tx = await vesterNGlp.setHandler(rewardRouter.address, true);
+    tx = await vesterNGlp.setHandlers([rewardRouter.address], [true]);
     await tx.wait();
 
     /* ##################################################################
                             NEU settings
     ################################################################## */
-    tx = await bnNEU.setHandler(feeNeuTracker.address, true);
+    tx = await bnNEU.setHandlers([feeNeuTracker.address], [true]);
     await tx.wait();
 
     tx = await bnNEU.setMinter(rewardRouter.address, true);
     await tx.wait();
 
-    tx = await nGlp.setHandler(feeNeuGlpTracker.address, true);
+    tx = await nGlp.setHandlers([
+        feeNeuGlpTracker.address,
+        router.address, 
+        batchRouter.address
+    ], [true, true, true]);
     await tx.wait();
 
     tx = await nGlp.setMinter(router.address, true);
-    await tx.wait();
-    
-    tx = await nGlp.setHandler(router.address, true);
-    await tx.wait();
-    
-    tx = await nGlp.setHandler(batchRouter.address, true);
     await tx.wait();
 
     tx = await nGlp.setMinter(strategyVault.address, true);
@@ -257,28 +261,17 @@ async function main() {
     tx = await esNEU.setInPrivateTransferMode(true);
     await tx.wait();
 
-    tx = await esNEU.setHandler(batchRouter.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(rewardRouter.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(stakedNeuDistributor.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(stakedNeuGlpDistributor.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(stakedNeuGlpTracker.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(stakedNeuTracker.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(vesterNGlp.address, true);
-    await tx.wait();
-
-    tx = await esNEU.setHandler(vesterNeu.address, true);
+    tx = await esNEU.setHandlers([
+        batchRouter.address,
+        rewardRouter.address,
+        stakedNeuDistributor.address,
+        stakedNeuGlpDistributor.address,
+        stakedNeuGlpTracker.address,
+        stakedNeuTracker.address,
+        vesterNGlp.address,
+        vesterNeu.address,
+        esNEUManager.address
+    ], [true, true, true, true, true, true, true, true, true]);
     await tx.wait();
 
     tx = await esNEU.setMinter(vesterNGlp.address, true);
@@ -287,96 +280,47 @@ async function main() {
     tx = await esNEU.setMinter(vesterNeu.address, true);
     await tx.wait();
 
-
+    tx = await esNEU.setMinter(esNEUManager.address, true);
+    await tx.wait();
     /* ##################################################################
                             tracker settings
     ################################################################## */
-    tx = await stakedNeuTracker.setInPrivateStakingMode(true);
-    await tx.wait();
-
-    tx = await stakedNeuTracker.setInPrivateTransferMode(true);
-    await tx.wait();
-
-    tx = await bonusNeuTracker.setInPrivateStakingMode(true);
-    await tx.wait();
-
-    tx = await bonusNeuTracker.setInPrivateTransferMode(true);
-    await tx.wait();
-
-    tx = await bonusNeuTracker.setInPrivateClaimingMode(true);
-    await tx.wait();
-
-    tx = await feeNeuTracker.setInPrivateStakingMode(true);
-    await tx.wait();
-
-    tx = await feeNeuTracker.setInPrivateTransferMode(true);
-    await tx.wait();
-
-    tx = await feeNeuGlpTracker.setInPrivateStakingMode(true);
-    await tx.wait();
-
-    tx = await feeNeuGlpTracker.setInPrivateTransferMode(true);
-    await tx.wait();
-
-    tx = await stakedNeuGlpTracker.setInPrivateStakingMode(true);
-    await tx.wait();
-
-    tx = await stakedNeuGlpTracker.setInPrivateTransferMode(true);
-    await tx.wait();
-
     tx = await bonusDistributor.updateLastDistributionTime();
     await tx.wait();
-    
+
     tx = await bonusDistributor.setBonusMultiplier(10000);
     await tx.wait();
-    
-    // stakedNeuTracker handler
-    tx = await stakedNeuTracker.setHandler(rewardRouter.address, true);
-    await tx.wait();
 
-    tx = await stakedNeuTracker.setHandler(bonusNeuTracker.address, true);
+    // stakedNeuTracker handler
+    tx = await stakedNeuTracker.setHandlers([rewardRouter.address, bonusNeuTracker.address], [true, true]);
     await tx.wait();
 
     // bonusNeuTracker handler
-    tx = await bonusNeuTracker.setHandler(rewardRouter.address, true);
-    await tx.wait();
-
-    tx = await bonusNeuTracker.setHandler(feeNeuTracker.address, true);
+    tx = await bonusNeuTracker.setHandlers([rewardRouter.address, feeNeuTracker.address], [true, true]);
     await tx.wait();
 
     // feeNeuGlpTracker handler
-    tx = await feeNeuGlpTracker.setHandler(stakedNeuGlpTracker.address, true);
-    await tx.wait();
-
-    tx = await feeNeuGlpTracker.setHandler(rewardRouter.address, true);
-    await tx.wait();
-
-    tx = await feeNeuGlpTracker.setHandler(router.address, true);
-    await tx.wait();
-
-    tx = await feeNeuGlpTracker.setHandler(batchRouter.address, true);
+    tx = await feeNeuGlpTracker.setHandlers([
+        stakedNeuGlpTracker.address,
+        rewardRouter.address,
+        router.address,
+        batchRouter.address
+    ], [true, true, true, true]);
     await tx.wait();
 
     // feeNeuTracker handler
-    tx = await feeNeuTracker.setHandler(vesterNeu.address, true);
-    await tx.wait();
-
-    tx = await feeNeuTracker.setHandler(rewardRouter.address, true);
+    tx = await feeNeuTracker.setHandlers([vesterNeu.address, rewardRouter.address], [true, true]);
     await tx.wait();
 
     // stakedNeuGlpTracker handler
-    tx = await stakedNeuGlpTracker.setHandler(rewardRouter.address, true);
+    tx = await stakedNeuGlpTracker.setHandlers([
+        rewardRouter.address,
+        vesterNGlp.address,
+        router.address,
+        batchRouter.address
+    ], [true, true, true, true]);
     await tx.wait();
-
-    tx = await stakedNeuGlpTracker.setHandler(vesterNGlp.address, true);
-    await tx.wait();
-
-    tx = await stakedNeuGlpTracker.setHandler(router.address, true);
-    await tx.wait();
-
-    tx = await stakedNeuGlpTracker.setHandler(batchRouter.address, true);
-    await tx.wait();
-
+    
     /* ##################################################################
                             strategyVault settings
     ################################################################## */
@@ -396,7 +340,7 @@ async function main() {
     tx = await router.setHandler(batchRouter.address, true);
     await tx.wait();
 
-    tx = await router.setIsSale(true);
+    tx = await router.setSale(true);
     await tx.wait();
 
     /* ##################################################################
