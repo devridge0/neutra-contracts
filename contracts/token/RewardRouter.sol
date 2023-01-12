@@ -13,8 +13,6 @@ import {IWETH} from "../interfaces/IWETH.sol";
 import {Governable} from "../libraries/Governable.sol";
 
 contract RewardRouter is ReentrancyGuard, Governable {
-    using Address for address payable;
-
     bool public isInitialized;
 
     address public weth;
@@ -162,8 +160,7 @@ contract RewardRouter is ReentrancyGuard, Governable {
         bool _shouldClaimEsNeu,
         bool _shouldStakeEsNeu,
         bool _shouldStakeMultiplierPoints,
-        bool _shouldClaimWeth,
-        bool _shouldConvertWethToEth
+        bool _shouldClaimFee
     ) external nonReentrant {
         address account = msg.sender;
 
@@ -199,16 +196,8 @@ contract RewardRouter is ReentrancyGuard, Governable {
             }
         }
 
-        if (_shouldClaimWeth) {
-            if (_shouldConvertWethToEth) {
-                uint256 wethAmount = IRewardTracker(feeNeuTracker).claimForAccount(account, address(this));
-
-                IWETH(weth).withdraw(wethAmount);
-
-                payable(account).sendValue(wethAmount);
-            } else {
+        if (_shouldClaimFee) {
                 IRewardTracker(feeNeuTracker).claimForAccount(account, account);
-            }
         }
     }
 
@@ -399,7 +388,7 @@ contract RewardRouter is ReentrancyGuard, Governable {
             uint256 stakedBnNeu = IRewardTracker(feeNeuTracker).depositBalances(_account, bnNeu);
 
             if (stakedBnNeu > 0) {
-                uint256 reductionAmount = (stakedBnNeu * _amount) / balance;
+                uint256 reductionAmount = stakedBnNeu * _amount / balance;
 
                 IRewardTracker(feeNeuTracker).unstakeForAccount(_account, bnNeu, reductionAmount, _account);
                 IMintable(bnNeu).burn(_account, reductionAmount);

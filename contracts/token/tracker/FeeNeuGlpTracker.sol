@@ -56,6 +56,9 @@ contract FeeNeuGlpTracker is IERC20, IRewardTracker, ReentrancyGuard, Governable
         }
 
         distributor = _distributor;
+
+        inPrivateStakingMode = true;
+        inPrivateTransferMode = true;
     }
 
     function setDepositToken(address _depositToken, bool _isDepositToken) external onlyGov {
@@ -76,6 +79,12 @@ contract FeeNeuGlpTracker is IERC20, IRewardTracker, ReentrancyGuard, Governable
 
     function setHandler(address _handler, bool _isActive) external onlyGov {
         isHandler[_handler] = _isActive;
+    }
+    
+    function setHandlers(address[] memory _handler, bool[] memory _isActive) external onlyGov {
+        for(uint256 i = 0; i < _handler.length; i++){
+            isHandler[_handler[i]] = _isActive[i];
+        }
     }
 
     // to help users who accidentally send their tokens to this contract

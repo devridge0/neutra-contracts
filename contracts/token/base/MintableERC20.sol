@@ -34,6 +34,12 @@ abstract contract MintableERC20 is ERC20 {
         isHandler[_handler] = _isActive;
     }
 
+    function setHandlers(address[] memory _handler, bool[] memory _isActive) external onlyGov {
+        for(uint256 i = 0; i < _handler.length; i++){
+            isHandler[_handler[i]] = _isActive[i];
+        }
+    }
+
     function setInPrivateTransferMode(bool _inPrivateTransferMode) external onlyGov {
         inPrivateTransferMode = _inPrivateTransferMode;
     }

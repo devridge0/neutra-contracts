@@ -33,4 +33,5 @@ interface IPositionRouter {
     function increasePositionRequestKeysStart() external view returns (uint256);
     function decreasePositionRequestKeysStart() external view returns (uint256);
     function maxGlobalShortSizes(address _indexToken) external view returns (uint256);
+    function minExecutionFee() external view returns (uint256);
 }
