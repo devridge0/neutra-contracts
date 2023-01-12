@@ -64,7 +64,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     uint256 public managementFee; 
 
     uint256 public insuranceFund;
-    uint256 public depositLimit;
     uint256 public feeReserves;
     uint256 public unpaidDebt;
 
@@ -116,14 +115,24 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     event RepayUnpaidFundingFee(uint256 unpaidFundingFeeWbtc, uint256 unpaidFundingFeeWeth);
     event WithdrawFees(uint256 amount, address receiver);
     event WithdrawInsuranceFund(uint256 amount, address receiver);
+    event Settle(uint256 amountIn, uint256 amountOut, address recipient);
+    event SetGov(address gov);
+    event SetGmxHelper(address helper);
+    event SetKeeper(address keeper, bool isActive);
+    event SetWant(address want);
+    event SetExecutionFee(uint256 fee);
+    event SetCallbackTarget(address callbackTarget);
+    event SetRouter(address router, bool isActive);
+    event SetManagement(address management, uint256 fee);
+    event WithdrawEth(uint256 amount);
 
     modifier onlyGov() {
         _onlyGov();
         _;
     }
 
-    modifier onlyKeepers() {
-        _onlyKeepers();
+    modifier onlyKeepersAndAbove() {
+        _onlyKeepersAndAbove();
         _;
     }
 
@@ -163,7 +172,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         require(msg.sender == gov, "StrategyVault: not authorized");
     }
 
-    function _onlyKeepers() internal view {
+    function _onlyKeepersAndAbove() internal view {
         require(keepers[msg.sender] || routers[msg.sender] || msg.sender == gov, "StrategyVault: not keepers");
     }
 
@@ -172,7 +181,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     /// @dev rebalance init function
-    function minimiseDeltaWithBuyGlp(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepers {
+    function minimiseDeltaWithBuyGlp(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepersAndAbove {
         require(confirmed, "StrategyVault: not confirmed yet");
         require(!exited, "StrategyVault: strategy already exited");
         uint256 length = _selectors.length;
@@ -212,15 +221,13 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
                 pendingPositionInfo.fundingFee += fundingFee;
 
-                if (amountIn + fundingFee > 0 && sizeDelta > 0) {
-                    // add additional funding fee here to save execution fee
-                    if (indexToken == wbtc) {
-                        hasWbtcIncrease = true;
-                    } else {
-                        hasWethIncrease = true;
-                    }
-                    increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                if (indexToken == wbtc) {
+                    hasWbtcIncrease = true;
+                } else {
+                    hasWethIncrease = true;
                 }
+                // add additional funding fee here to save execution fee
+                increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
                 continue;
             }
 
@@ -242,7 +249,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     /// @dev rebalance init function
-    function minimiseDeltaWithSellGlp(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepers {
+    function minimiseDeltaWithSellGlp(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepersAndAbove {
         require(confirmed, "StrategyVault: not confirmed yet");
         require(!exited, "StrategyVault: strategy already exited");
         uint256 length = _selectors.length;
@@ -282,15 +289,13 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
                 pendingPositionInfo.fundingFee += fundingFee;
 
-                if (amountIn + fundingFee > 0 && sizeDelta > 0) {
-                    if (indexToken == wbtc) {
-                        hasWbtcIncrease = true;
-                    } else {
-                        hasWethIncrease = true;
-                    }
-                    // add additional funding fee here to save execution fee
-                    increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
+                if (indexToken == wbtc) {
+                    hasWbtcIncrease = true;
+                } else {
+                    hasWethIncrease = true;
                 }
+                // add additional funding fee here to save execution fee
+                increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
                 continue;
             }
 
@@ -380,7 +385,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     /// @dev should be called only if positions execution had been failed
-    function retryPositions(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepers {
+    function retryPositions(bytes4[] calldata _selectors, bytes[] calldata _params) external payable onlyKeepersAndAbove {
         require(!confirmed, "StrategyVault: no failed execution");
         uint256 length = _selectors.length;
         require(msg.value >= executionFee * length, "StrategyVault: not enough execution fee");
@@ -457,7 +462,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     // confirm for rebalance
-    function confirmRebalance() external onlyKeepers {
+    function confirmRebalance() external onlyKeepersAndAbove {
         _confirm();
 
         uint256 currentBalance = IERC20(want).balanceOf(address(this));
@@ -567,8 +572,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     /// @dev repaying funding fee requires execution fee
-    /// @dev needs to call regulary by keepers
-    function repayFundingFee() external payable onlyKeepers {
+    /// @dev needs to call regularly by keepers
+    function repayFundingFee() external payable onlyKeepersAndAbove {
         require(!exited, "StrategyVault: strategy already exited");
         require(msg.value >= executionFee * 2, "StrategyVault: not enough execution fee");
 
@@ -582,7 +587,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         wethFundingFee = adjustForDecimals(wethFundingFee, address(0), want) + 1; // round up
         
         uint256 balance = IERC20(want).balanceOf(address(this));
-        require(wethFundingFee + wbtcFundingFee <= balance, "StrategyVault: not enought balance to repay");
+        require(wethFundingFee + wbtcFundingFee <= balance, "StrategyVault: not enough balance to repay");
 
         if (wbtcFundingFee > 0) {
             increaseShortPosition(wbtc, wbtcFundingFee, 0);
@@ -622,6 +627,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         uint256 supply = IERC20(nGlp).totalSupply();
         uint256 amountOut = value * _amount / supply;
         IERC20(want).transfer(_recipient, amountOut);
+        emit Settle(_amount, amountOut, _recipient);
     }
 
     function _updatePendingPositionFundingRate() internal {
@@ -650,12 +656,12 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         emit DepositInsuranceFund(_amount, insuranceFund);
     }
 
-    function buyGlp(uint256 _amount) public onlyKeepers returns (uint256) {
+    function buyGlp(uint256 _amount) public onlyKeepersAndAbove returns (uint256) {
         emit BuyGlp(_amount);
         return IRewardRouter(glpRewardRouter).mintAndStakeGlp(want, _amount, 0, 0);
     }
 
-    function sellGlp(uint256 _amount, address _recipient) public onlyKeepers returns (uint256) {
+    function sellGlp(uint256 _amount, address _recipient) public onlyKeepersAndAbove returns (uint256) {
         emit SellGlp(_amount, _recipient);
         return IRewardRouter(glpRewardRouter).unstakeAndRedeemGlp(want, _amount, 0, _recipient);
     }
@@ -664,7 +670,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         address _indexToken,
         uint256 _amountIn,
         uint256 _sizeDelta
-    ) public payable onlyKeepers {
+    ) public payable onlyKeepersAndAbove {
         require(IGmxHelper(gmxHelper).validateMaxGlobalShortSize(_indexToken, _sizeDelta), "StrategyVault: max global shorts exceeded");
 
         address[] memory path = new address[](1);
@@ -677,7 +683,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             0, // minOut
             _sizeDelta,
             false,
-            0, // acceptablePrcie
+            0, // acceptablePrice
             executionFee,
             referralCode,
             callbackTarget
@@ -691,7 +697,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         uint256 _collateralDelta,
         uint256 _sizeDelta,
         address _recipient
-    ) public payable onlyKeepers {
+    ) public payable onlyKeepersAndAbove {
         address[] memory path = new address[](1);
         path[0] = want;
 
@@ -702,7 +708,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             _sizeDelta,
             false,
             _recipient,
-            type(uint256).max, // acceptablePrcie
+            type(uint256).max, // acceptablePrice
             0,
             executionFee,
             false,
@@ -712,8 +718,16 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         emit DecreaseShortPosition(_indexToken, _collateralDelta, _sizeDelta, _recipient);
     }
 
+    function setGov(address _gov) external onlyGov {
+        require(_gov != address(0), "StrategyVault: invalid address");
+        gov = _gov;
+        emit SetGov(_gov);
+    }
+
     function setGmxHelper(address _helper) external onlyGov {
+        require(_helper != address(0), "StrategyVault: invalid address");
         gmxHelper = _helper;
+        emit SetGmxHelper(_helper);
     }
 
     function setMarginFeeBasisPoints(uint256 _bps) external onlyGov {
@@ -721,34 +735,43 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     function setKeeper(address _keeper, bool _isActive) external onlyGov {
+        require(_keeper != address(0), "StrategyVault: invalid address");
         keepers[_keeper] = _isActive;
+        emit SetKeeper(_keeper, _isActive);
     }
 
     function setWant(address _want) external onlyGov {
+        IERC20(want).approve(glpManager, 0);
+        IERC20(want).approve(gmxRouter, 0);
         want = _want;
-        IERC20(want).approve(glpManager, type(uint256).max);
-        IERC20(want).approve(gmxRouter, type(uint256).max);
+        IERC20(_want).approve(glpManager, type(uint256).max);
+        IERC20(_want).approve(gmxRouter, type(uint256).max);
+        emit SetWant(_want);
     }
 
     function setExecutionFee(uint256 _executionFee) external onlyGov {
+        require(_executionFee > IPositionRouter(positionRouter).minExecutionFee(), "StrategyVault: execution fee needs to be set higher");
         executionFee = _executionFee;
+        emit SetExecutionFee(_executionFee);
     }
 
     function setCallbackTarget(address _callbackTarget) external onlyGov {
+        require(_callbackTarget != address(0), "StrategyVault: invalid address");
         callbackTarget = _callbackTarget;
-    }
-
-    function setDepositLimit(uint256 _limit) external onlyGov {
-        depositLimit = _limit;
+        emit SetCallbackTarget(_callbackTarget);
     }
 
     function setRouter(address _router, bool _isActive) external onlyGov {
+        require(_router != address(0), "StrategyVault: invalid address");
         routers[_router] = _isActive;
+        emit SetRouter(_router, _isActive);
     }
 
     function setManagement(address _management, uint256 _fee) external onlyGov {
+        require(management != address(0), "StrategyVault: invalid address");
         management = _management;
         managementFee =_fee;
+        emit SetManagement(_management, _fee);
     }
 
     function registerAndSetReferralCode(string memory _text) public onlyGov {
@@ -773,7 +796,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return _amount * (10 ** decimalsMul) / (10 ** decimalsDiv);
     }
 
-    function repayUnpaidFundingFee() external payable onlyKeepers {
+    function repayUnpaidFundingFee() external payable onlyKeepersAndAbove {
         require(!exited, "StrategyVault: strategy already exited");
 
         uint256 unpaidFundingFeeWbtc = unpaidFundingFee[wbtc];
@@ -812,8 +835,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     function withdrawInsuranceFund(address _receiver) external onlyGov returns (uint256) {
-        uint256 curBlaance = IERC20(want).balanceOf(address(this));
-        uint256 amount = insuranceFund >= curBlaance ? curBlaance : insuranceFund;
+        uint256 curBalance = IERC20(want).balanceOf(address(this));
+        uint256 amount = insuranceFund >= curBalance ? curBalance : insuranceFund;
         insuranceFund -= amount;
         IERC20(want).transfer(_receiver, amount);
 
@@ -822,15 +845,10 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return amount;
     }
 
-    /// only for development purpose, should be removed when it goes production
-    function rescueFunds(address _token) external onlyGov {
-        IERC20 token = IERC20(_token);  
-        uint256 balance = token.balanceOf(address(this));
-        token.transfer(msg.sender, balance);
-    }
-
+    // rescue execution fee
     function withdrawEth() external payable onlyGov {
         payable(msg.sender).transfer(address(this).balance);
+        emit WithdrawEth(address(this).balance);
     }
 
 }
