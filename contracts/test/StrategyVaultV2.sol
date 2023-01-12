@@ -51,7 +51,8 @@ contract StrategyVaultV2 is Initializable, UUPSUpgradeable {
     uint256 constant SECS_PER_YEAR = 31_536_000;
     uint256 constant MAX_BPS = 10_000;
     uint256 constant PRECISION = 1e30;
-    
+    uint256 constant MAX_MANAGEMENT_FEE = 500;
+
     bool public confirmed;
     bool public initialDeposit;
     bool public exited;
@@ -773,6 +774,7 @@ contract StrategyVaultV2 is Initializable, UUPSUpgradeable {
 
     function setManagement(address _management, uint256 _fee) external onlyGov {
         require(management != address(0), "StrategyVault: invalid address");
+        require(MAX_MANAGEMENT_FEE >= _fee, "StrategyVault: max fee exceeded");
         management = _management;
         managementFee =_fee;
         emit SetManagement(_management, _fee);
