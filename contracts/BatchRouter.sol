@@ -2,13 +2,17 @@
 
 pragma solidity 0.8.11;
 
-import {Governable} from "./libraries/Governable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 
-contract BatchRouter is Governable {
+contract BatchRouter is Initializable, UUPSUpgradeable {
     bool public executed;
+
+    address public gov;
 
     address public want;
     address public nGlp;
@@ -17,11 +21,11 @@ contract BatchRouter is Governable {
     address public esNeu;
     
     uint256 constant PRECISION = 1e30;
-    uint256 public executionFee = 0.0001 ether;
+    uint256 public executionFee;
     uint256 public depositLimit; // want decimals
 
-    uint256 public currentDepositRound = 1;
-    uint256 public currentWithdrawRound = 1;
+    uint256 public currentDepositRound;
+    uint256 public currentWithdrawRound;
 
     uint256 public cumulativeWantReward;
     uint256 public cumulativeEsNeuReward;
@@ -45,15 +49,75 @@ contract BatchRouter is Governable {
     mapping (address => uint256) public depositRound;
     mapping (address => uint256) public withdrawRound;
 
+    mapping(address => bool) public isHandler;
+
     address public feeNeuGlpTracker;
     address public stakedNeuGlpTracker;
 
-    event UpdateDepositLimit(uint256 depositLimit);
+    event ReserveDeposit(address indexed account, uint256 amount, uint256 round);
+    event ReserveWithdraw(address indexed account, uint256 amount, uint256 round);
+    event CancelDeposit(address indexed account, uint256 amount, uint256 round);
+    event CancelWithdraw(address indexed account, uint256 amount, uint256 round);
+    event ClaimWant(address indexed account, uint256 round, uint256 balance, uint256 claimAmount);
+    event ClaimStakedNeuGlp(
+        address indexed account, 
+        uint256 round, 
+        uint256 balance, 
+        uint256 claimAmount, 
+        uint256 esNeuClaimable, 
+        uint256 wantClaimable
+    );
+    event ExecuteBatchPositions(bool isWithdraw, uint256 amountIn);
+    event ConfirmAndDealGlpDeposit(uint256 amountOut, uint256 round);
+    event ConfirmAndDealGlpWithdraw(uint256 amountOut, uint256 round);
+    event UpdateReward(
+        uint256 esNeuAmount, 
+        uint256 wantAmount, 
+        uint256 cumulativeEsNeuRewardPerToken, 
+        uint256 cumulativeWantRewardPerToken
+    );
+    event SetGov(address gov);
+    event SetRouter(address router);
+    event SetTrackers(address feeNeuGlpTracker, address stakedNeuGlpTracker);
+    event SetExecutionFee(uint256 executionFee);
+    event SetDepositLimit(uint256 limit);
+    event SetHandler(address handler, bool isActive);
 
-    constructor(address _want, address _nGlp, address _esNeu) {
+    modifier onlyGov() {
+        _onlyGov();
+        _;
+    }
+
+    modifier onlyHandlerAndAbove() {
+        _onlyHandlerAndAbove();
+        _;
+    }
+
+    function initialize(address _want, address _nGlp, address _esNeu) public initializer {
         want =_want;
         nGlp = _nGlp;
         esNeu = _esNeu;
+
+        gov = msg.sender;
+        executionFee = 0.0001 ether;
+        currentDepositRound = 1;
+        currentWithdrawRound = 1;
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override onlyGov {}
+
+    function _onlyGov() internal view {
+        require(msg.sender == gov, "BatchRouter: not authorized");
+    }
+
+    function _onlyHandlerAndAbove() internal view {
+        require(msg.sender == gov || isHandler[msg.sender], "BatchRouter: forbidden");
+    }
+
+    function setHandler(address _handler, bool _isActive) external onlyGov {
+        require(_handler != address(0), "BatchRouter: invalid address");
+        isHandler[_handler] = _isActive;
+        emit SetHandler(_handler, _isActive);
     }
 
     function approveToken(address _token, address _spender) external onlyGov {
@@ -61,7 +125,7 @@ contract BatchRouter is Governable {
     } 
 
     function reserveDeposit(uint256 _amount) external {
-        require(!executed, "batchRouter: batch under execution");
+        require(!executed, "BatchRouter: batch under execution");
         if (wantBalances[msg.sender] > 0) {
             _claimStakedNeuGlp();
         }
@@ -74,10 +138,12 @@ contract BatchRouter is Governable {
         if (depositRound[msg.sender] == 0) {
             depositRound[msg.sender] = currentDepositRound;
         }
+
+        emit ReserveDeposit(msg.sender, _amount, depositRound[msg.sender]);
     }
 
     function reserveWithdraw(uint256 _amount) external {
-        require(!executed, "batchRouter: batch under execution");
+        require(!executed, "BatchRouter: batch under execution");
         if (snGlpBalances[msg.sender] > 0) {
             _claimWant();
         }
@@ -91,31 +157,38 @@ contract BatchRouter is Governable {
         if (withdrawRound[msg.sender] == 0) {
             withdrawRound[msg.sender] = currentWithdrawRound;
         }
+
+        emit ReserveWithdraw(msg.sender, _amount, withdrawRound[msg.sender]);
     }
 
     function cancelDeposit(uint256 _amount) external {
-        require(!executed, "batchRouter: batch under execution");
+        require(!executed, "BatchRouter: batch under execution");
         require(currentDepositRound == depositRound[msg.sender], "BatchRouter : batch already exectued");
         wantBalances[msg.sender] -= _amount;
         totalWantPerRound[currentDepositRound] -= _amount;
+
         IERC20(want).transfer(msg.sender, _amount);
         if (wantBalances[msg.sender] == 0) {
             depositRound[msg.sender] = 0;
         }
+
+        emit CancelDeposit(msg.sender, _amount, currentDepositRound);
     }
 
     function cancelWithdraw(uint256 _amount) external {
-        require(!executed, "batchRouter: batch under execution");
+        require(!executed, "BatchRouter: batch under execution");
         require(currentWithdrawRound == withdrawRound[msg.sender], "BatchRouter : batch already exectued");
         snGlpBalances[msg.sender] -= _amount;
         totalSnGlpPerRound[currentWithdrawRound] -= _amount;
-
+        
         IRewardTracker(feeNeuGlpTracker).stakeForAccount(address(this), msg.sender, nGlp, _amount);
         IRewardTracker(stakedNeuGlpTracker).stakeForAccount(msg.sender, msg.sender, feeNeuGlpTracker, _amount);
         
         if (snGlpBalances[msg.sender] == 0) {
             withdrawRound[msg.sender] = 0;
         }
+
+        emit CancelWithdraw(msg.sender, _amount, currentWithdrawRound);
     }
 
     function claimWant() external {
@@ -154,6 +227,8 @@ contract BatchRouter is Governable {
 
         snGlpBalances[msg.sender] = 0;
         withdrawRound[msg.sender] = 0;
+
+        emit ClaimWant(msg.sender, round, balance, claimAmount);
     }
 
     function _claimStakedNeuGlp() internal {
@@ -189,16 +264,20 @@ contract BatchRouter is Governable {
 
         wantBalances[msg.sender] = 0;
         depositRound[msg.sender] = 0;
+
+        emit ClaimStakedNeuGlp(msg.sender, round, balance, claimAmount, esNeuClaimable, wantClaimable);
     }
 
-    function executeBatchPositions(bool _isWithdraw, bytes[] calldata _params) external payable onlyGov {
-        require(msg.value >= executionFee * 2, "BatchRouter: not enougt execution Fee");
+    function executeBatchPositions(bool _isWithdraw, bytes[] calldata _params) external payable onlyHandlerAndAbove {
+        require(msg.value >= executionFee * 2, "BatchRouter: not enough execution Fee");
         uint256 amountIn = _isWithdraw ? totalSnGlpPerRound[currentWithdrawRound] : totalWantPerRound[currentDepositRound];
         IRouter(router).executePositionsBeforeDealGlp{value: msg.value}(amountIn, _params, _isWithdraw);
         executed = true; 
+
+        emit ExecuteBatchPositions(_isWithdraw, amountIn);
     }
 
-    function confirmAndDealGlp(uint256 _amount, bool _isWithdraw) external onlyGov {
+    function confirmAndDealGlp(uint256 _amount, bool _isWithdraw) external onlyHandlerAndAbove {
         require(executed, "BatchRouter: executes positions first");
         if (!_isWithdraw) {
             uint256 amountOut = IRouter(router).confirmAndBuy(_amount, address(this));
@@ -212,11 +291,15 @@ contract BatchRouter is Governable {
 
             totalSnGlpReceivedAmount += amountOut;
             currentDepositRound += 1;
+
+            emit ConfirmAndDealGlpDeposit(amountOut, currentDepositRound - 1);
         } else {
             uint256 amountOut = IRouter(router).confirmAndSell(_amount, address(this));
             totalWantReceivedPerRound[currentWithdrawRound] = amountOut;
             totalWantReceivedAmount += amountOut;
             currentWithdrawRound += 1;
+
+            emit ConfirmAndDealGlpWithdraw(amountOut, currentWithdrawRound - 1);
         }
         executed = false;
     }
@@ -231,24 +314,31 @@ contract BatchRouter is Governable {
             cumulativeEsNeuRewardPerToken += esNeuAmount * PRECISION / totalSupply;
             cumulativeWantRewardPerToken += wantAmount * PRECISION / totalSupply;
         }
+
+        emit UpdateReward(esNeuAmount, wantAmount, cumulativeEsNeuRewardPerToken, cumulativeWantRewardPerToken);
     }
 
     function setRouter(address _router) external onlyGov {
+        require(_router != address(0), "BatchRouter: invalid address");
         router = _router;
+        emit SetRouter(_router);
     }
 
     function setDepositLimit(uint256 _limit) external onlyGov {
         depositLimit = _limit;
-        emit UpdateDepositLimit(_limit);
+        emit SetDepositLimit(_limit);
     }
 
     function setTrackers(address _feeNeuGlpTracker, address _stakedNeuGlpTracker) external onlyGov {
+        require(_feeNeuGlpTracker != address(0) && _stakedNeuGlpTracker != address(0), "BatchRouter: invalid address");
         feeNeuGlpTracker = _feeNeuGlpTracker;
         stakedNeuGlpTracker = _stakedNeuGlpTracker;
+        emit SetTrackers(_feeNeuGlpTracker, _stakedNeuGlpTracker);
     }
 
     function setExecutionFee(uint256 _executionFee) external onlyGov {
         executionFee = _executionFee;
+        emit SetExecutionFee(_executionFee);
     }
 
     function claimableWant(address _account) public view returns (uint256) {
@@ -262,7 +352,6 @@ contract BatchRouter is Governable {
         uint256 totalReceived = totalWantReceivedPerRound[round];
 
         return totalReceived * balance / totalBalance;
-
     }
 
     function claimableSnGlp(address _account) public view returns (uint256) {
