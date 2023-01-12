@@ -100,7 +100,7 @@ async function main() {
     await bonusDistributor.deployed();
     console.log(`bonusDistributor address : ${bonusDistributor.address}`);
 
-    // 11. FeeNeuDistributor
+    // 11. FeeNeuDistributor (DAI - NEU)
     const FeeNeuDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const feeNeuDistributor = await FeeNeuDistributor.deploy(
         addr.DAI,
@@ -109,13 +109,13 @@ async function main() {
     await feeNeuDistributor.deployed();
     console.log(`feeNeuDistributor address : ${feeNeuDistributor.address}`);
 
-    // 12. FeeNeuGlpDistributor
+    // 12. FeeNeuGlpDistributor (DAI - nGLP)
     const FeeNeuGlpDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const feeNeuGlpDistributor = await FeeNeuGlpDistributor.deploy(addr.DAI, feeNeuGlpTracker.address);
     await feeNeuGlpDistributor.deployed();
     console.log(`feeNeuGlpDistributor address : ${feeNeuGlpDistributor.address}`);
 
-    // 13. StakedNeuDistributor (DAI - NEU)
+    // 13. StakedNeuDistributor (esNEU - NEU)
     const StakedNeuDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const stakedNeuDistributor = await StakedNeuDistributor.deploy(
         esNEU.address,
@@ -124,7 +124,7 @@ async function main() {
     await stakedNeuDistributor.deployed();
     console.log(`stakedNeuDistributor address : ${stakedNeuDistributor.address}`);
 
-    // 14. StakedNeuGlpDistributor (DAI - nGLP)
+    // 14. StakedNeuGlpDistributor (esNEU - nGLP)
     const StakedNeuGlpDistributor = await hre.ethers.getContractFactory("RewardDistributor");
     const stakedNeuGlpDistributor = await StakedNeuGlpDistributor.deploy(esNEU.address, stakedNeuGlpTracker.address);
     await stakedNeuGlpDistributor.deployed();

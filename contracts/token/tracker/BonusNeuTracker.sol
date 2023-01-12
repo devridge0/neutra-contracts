@@ -16,7 +16,7 @@ contract BonusNeuTracker is IERC20, IRewardTracker, ReentrancyGuard, Governable 
 
     bool public isInitialized;
 
-    string public name = "Staked + Bonus Neu";
+    string public name = "Staked + Bonus NEU";
     string public symbol = "sbNEU";
 
     address public distributor;
