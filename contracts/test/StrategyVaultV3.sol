@@ -777,7 +777,7 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
     }
 
     function setManagement(address _management, uint256 _fee) external onlyGov {
-        require(management != address(0), "StrategyVault: invalid address");
+        require(_management != address(0), "StrategyVault: invalid address");
         require(MAX_MANAGEMENT_FEE >= _fee, "StrategyVault: max fee exceeded");
         management = _management;
         managementFee =_fee;
