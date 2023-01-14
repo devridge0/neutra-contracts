@@ -126,7 +126,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     event SetManagement(address management, uint256 fee);
     event WithdrawEth(uint256 amount);
     event ConfirmFundingRates(uint256 lastUpdatedFundingRate, uint256 wbtcFundingRate, uint256 wethFundingRate);
-    
+
     modifier onlyGov() {
         _onlyGov();
         _;
@@ -218,7 +218,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
+                fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
 
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -286,7 +286,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
+                fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
 
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -336,11 +336,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             IERC20(want).transferFrom(msg.sender, address(this), amountIn);
 
             uint256 positionFee = sizeDelta * marginFeeBasisPoints / MAX_BPS;
-            uint256 shortValue = adjustForDecimals(amountIn, want, address(0));
+            uint256 shortValue = adjustForDecimals(amountIn, want, address(0), false);
             pendingShortValue += shortValue - positionFee;
 
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-            fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
+            fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
 
             if (indexToken == wbtc) {
                 pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -377,9 +377,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
 
             if (indexToken == wbtc) {
-                pendingPositionFeeInfo.wbtcFundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0;
+                pendingPositionFeeInfo.wbtcFundingFee = adjustForDecimals(fundingFee, address(0), want, true);
             } else {
-                pendingPositionFeeInfo.wethFundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0;
+                pendingPositionFeeInfo.wethFundingFee = adjustForDecimals(fundingFee, address(0), want, true);
             }
 
             // when collateralDelta is less than margin fee, fee will be subtracted on position state
@@ -409,7 +409,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
                 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
+                fundingFee = adjustForDecimals(fundingFee, address(0), want, true);
 
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -517,12 +517,12 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         
         if (wbtcFundingRate > lastUpdatedFundingRate) {
             uint256 wbtcFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), wbtc, lastUpdatedFundingRate); // 30 decimals
-            unpaidFundingFee[wbtc] += adjustForDecimals(wbtcFundingFee, address(0), want) + 1;
+            unpaidFundingFee[wbtc] += adjustForDecimals(wbtcFundingFee, address(0), want, true);
         } 
 
         if (wethFundingRate > lastUpdatedFundingRate) {
             uint256 wethFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), weth, lastUpdatedFundingRate); // 30 decimals
-            unpaidFundingFee[weth] += adjustForDecimals(wethFundingFee, address(0), want) + 1;
+            unpaidFundingFee[weth] += adjustForDecimals(wethFundingFee, address(0), want, true);
         }
         
         uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
@@ -600,9 +600,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         IGmxHelper _gmxHelper = IGmxHelper(gmxHelper);
 
         uint256 wbtcFundingFee = _gmxHelper.getFundingFee(address(this), wbtc); // 30 decimals
-        wbtcFundingFee = adjustForDecimals(wbtcFundingFee, address(0), want) + 1; // round up
+        wbtcFundingFee = adjustForDecimals(wbtcFundingFee, address(0), want, true);
         uint256 wethFundingFee = _gmxHelper.getFundingFee(address(this), weth);
-        wethFundingFee = adjustForDecimals(wethFundingFee, address(0), want) + 1; // round up
+        wethFundingFee = adjustForDecimals(wethFundingFee, address(0), want, true);
         
         uint256 balance = IERC20(want).balanceOf(address(this));
         require(wethFundingFee + wbtcFundingFee <= balance, "StrategyVault: not enough balance to repay");
@@ -805,9 +805,12 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return exited ? IERC20(want).balanceOf(address(this)) : IGmxHelper(gmxHelper).totalValue(address(this));
     }
 
-    function adjustForDecimals(uint256 _amount, address _tokenDiv, address _tokenMul) public view returns (uint256) {
+    function adjustForDecimals(uint256 _amount, address _tokenDiv, address _tokenMul, bool _isCeil) public view returns (uint256) {
         uint256 decimalsDiv = _tokenDiv == address(0) ? 30 : IERC20(_tokenDiv).decimals();
         uint256 decimalsMul = _tokenMul == address(0) ? 30 : IERC20(_tokenMul).decimals();
+        if (_isCeil) {
+            return ceilDiv(_amount * (10 ** decimalsMul), 10 ** decimalsDiv);
+        }
         return _amount * (10 ** decimalsMul) / (10 ** decimalsDiv);
     }
 
@@ -866,4 +869,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         emit WithdrawEth(address(this).balance);
     }
 
+    function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        // (a + b - 1) / b can overflow on addition, so we distribute.
+        return a == 0 ? 0 : (a - 1) / b + 1;
+    }
 }
