@@ -59,7 +59,7 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
 
     uint256 public executionFee;
 
-    uint256 public lastHarvest; // block.timestamp of last harvest
+    uint256 public lastCollect; // block.timestamp of last collect
     uint256 public managementFee; 
 
     uint256 public insuranceFund;
@@ -110,7 +110,7 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
     event Confirm();
     event ConfirmRebalance(bool hasDebt, uint256 delta, uint256 prepaidGmxFee);
     event Harvest(uint256 amountOut, uint256 feeReserves);
-    event CollectManagementFee(uint256 alpha, uint256 lastHarvest);
+    event CollectManagementFee(uint256 alpha, uint256 lastCollect);
     event RepayFundingFee(uint256 wbtcFundingFee, uint256 wethFundingFee, uint256 prepaidGmxFee);
     event DepositInsuranceFund(uint256 amount, uint256 insuranceFund);
     event BuyGlp(uint256 amount);
@@ -569,28 +569,28 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
     // (totalVaule) / (totalSupply + alpha) = (totalValue * (1-(managementFee * duration))) / totalSupply 
     // alpha = (totalSupply / (1-(managementFee * duration))) - totalSupply
     function _collectManagementFee() internal {
-        uint256 _lastHarvest = lastHarvest;
-        if (_lastHarvest == 0) {
+        uint256 _lastCollect = lastCollect;
+        if (_lastCollect == 0) {
             return;
         }
-        uint256 duration = block.timestamp - _lastHarvest;
+        uint256 duration = block.timestamp - _lastCollect;
         uint256 supply = IERC20(nGlp).totalSupply() - IERC20(nGlp).balanceOf(management);
         uint256 alpha = supply * MAX_BPS / (MAX_BPS - (managementFee * duration / SECS_PER_YEAR)) - supply;
         if (alpha == 0) {
             return;
         }
         IMintable(nGlp).mint(management, alpha);
-        lastHarvest = block.timestamp;   
+        lastCollect = block.timestamp;   
 
-        emit CollectManagementFee(alpha, lastHarvest);
+        emit CollectManagementFee(alpha, lastCollect);
     }
 
     function activateManagementFee() external onlyGov {
-        lastHarvest = block.timestamp;
+        lastCollect = block.timestamp;
     }
 
     function deactivateManagementFee() external onlyGov {
-        lastHarvest = 0;
+        lastCollect = 0;
     }
 
     /// @dev repaying funding fee requires execution fee
