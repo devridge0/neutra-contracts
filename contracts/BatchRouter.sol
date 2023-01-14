@@ -4,6 +4,7 @@ pragma solidity 0.8.11;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "./libraries/MerkleProof.sol";
 
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IRewardTracker} from "./interfaces/IRewardTracker.sol";
@@ -11,6 +12,9 @@ import {IRouter} from "./interfaces/IRouter.sol";
 
 contract BatchRouter is Initializable, UUPSUpgradeable {
     bool public executed;
+    bool public isPublicSale;
+    bool public isWhitelistSale;
+    bool public executionStatus; //false - deposit , true - withdraw
 
     address public gov;
 
@@ -54,6 +58,9 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     address public feeNeuGlpTracker;
     address public stakedNeuGlpTracker;
 
+    uint256 public pendingDealAmount;
+    bytes32 public merkleRoot;
+
     event ReserveDeposit(address indexed account, uint256 amount, uint256 round);
     event ReserveWithdraw(address indexed account, uint256 amount, uint256 round);
     event CancelDeposit(address indexed account, uint256 amount, uint256 round);
@@ -82,6 +89,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     event SetExecutionFee(uint256 executionFee);
     event SetDepositLimit(uint256 limit);
     event SetHandler(address handler, bool isActive);
+    event SetSale(bool isPublicSale, bool isWhitelistSale);
 
     modifier onlyGov() {
         _onlyGov();
@@ -122,10 +130,32 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
 
     function approveToken(address _token, address _spender) external onlyGov {
         IERC20(_token).approve(_spender, type(uint256).max);
-    } 
+    }
+
+    function whitlelistReserveDeposit(bytes32[] calldata _merkleProf, uint256 _amount) public {
+        require(!executed, "BatchRouter: batch under execution");
+        require(isWhitelistSale, "BatchRouter: sale is closed");
+        require(_verify(_merkleProf, msg.sender), "BatchRouter: invalid proof");
+        if (wantBalances[msg.sender] > 0) {
+            _claimStakedNeuGlp();
+        }
+
+        IERC20(want).transferFrom(msg.sender, address(this), _amount);
+        totalWantPerRound[currentDepositRound] += _amount;
+        require(totalWantPerRound[currentDepositRound] <= depositLimit, "BatchRouter: exceeded deposit limit");
+        wantBalances[msg.sender] += _amount;
+
+        if (depositRound[msg.sender] == 0) {
+            depositRound[msg.sender] = currentDepositRound;
+        }
+
+        emit ReserveDeposit(msg.sender, _amount, depositRound[msg.sender]);
+
+    }
 
     function reserveDeposit(uint256 _amount) external {
         require(!executed, "BatchRouter: batch under execution");
+        require(isPublicSale, "BatchRouter: sale is closed");
         if (wantBalances[msg.sender] > 0) {
             _claimStakedNeuGlp();
         }
@@ -268,19 +298,23 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
         emit ClaimStakedNeuGlp(msg.sender, round, balance, claimAmount, esNeuClaimable, wantClaimable);
     }
 
-    function executeBatchPositions(bool _isWithdraw, bytes[] calldata _params) external payable onlyHandlerAndAbove {
+    function executeBatchPositions(bool _isWithdraw, bytes[] calldata _params, uint256 _dealAmount) external payable onlyHandlerAndAbove {
         require(msg.value >= executionFee * 2, "BatchRouter: not enough execution Fee");
         uint256 amountIn = _isWithdraw ? totalSnGlpPerRound[currentWithdrawRound] : totalWantPerRound[currentDepositRound];
         IRouter(router).executePositionsBeforeDealGlp{value: msg.value}(amountIn, _params, _isWithdraw);
+
+        pendingDealAmount = _dealAmount;
+        executionStatus = _isWithdraw;
+
         executed = true; 
 
         emit ExecuteBatchPositions(_isWithdraw, amountIn);
     }
 
-    function confirmAndDealGlp(uint256 _amount, bool _isWithdraw) external onlyHandlerAndAbove {
+    function confirmAndDealGlp() external onlyHandlerAndAbove {
         require(executed, "BatchRouter: executes positions first");
-        if (!_isWithdraw) {
-            uint256 amountOut = IRouter(router).confirmAndBuy(_amount, address(this));
+        if (!executionStatus) {
+            uint256 amountOut = IRouter(router).confirmAndBuy(pendingDealAmount, address(this));
 
             _updateRewards();
 
@@ -291,14 +325,16 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
 
             totalSnGlpReceivedAmount += amountOut;
             currentDepositRound += 1;
-
+            
+            pendingDealAmount = 0;
             emit ConfirmAndDealGlpDeposit(amountOut, currentDepositRound - 1);
         } else {
-            uint256 amountOut = IRouter(router).confirmAndSell(_amount, address(this));
+            uint256 amountOut = IRouter(router).confirmAndSell(pendingDealAmount, address(this));
             totalWantReceivedPerRound[currentWithdrawRound] = amountOut;
             totalWantReceivedAmount += amountOut;
             currentWithdrawRound += 1;
 
+            pendingDealAmount = 0;
             emit ConfirmAndDealGlpWithdraw(amountOut, currentWithdrawRound - 1);
         }
         executed = false;
@@ -384,6 +420,21 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
         uint256 esNeuClaimable = esNeuCumulativeReward * snGlpClaimable / totalSnGlpReceivedAmount;
 
         return (wantClaimable, esNeuClaimable);
+    }
+
+    function setMerkleRoot(bytes32 _merkleRoot) external onlyGov {
+        merkleRoot =  _merkleRoot;
+    }
+
+    function setSale(bool _isPublicSale, bool _isWhitelistSale) external onlyGov {
+        isPublicSale = _isPublicSale;
+        isWhitelistSale = _isWhitelistSale;
+        emit SetSale(_isPublicSale, _isWhitelistSale);
+    }
+
+    function _verify(bytes32[] calldata _merkleProof, address _sender) private view returns (bool) {
+        bytes32 leaf = keccak256(abi.encodePacked(_sender));
+        return MerkleProof.verify(_merkleProof, merkleRoot, leaf);
     }
 
 }

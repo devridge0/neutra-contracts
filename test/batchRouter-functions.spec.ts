@@ -32,6 +32,7 @@ describe('batchRouter-functions', () => {
         ({dai, keeper, positionRouter, fastPriceFeed, gmxVault } = await gmxProtocolFixture());
         [deployer, user0, user1] = await hre.ethers.getSigners();
 
+        await batchRouter.setSale(true, true);
     })
 
     it('reserves deposits - DAI', async () => {
@@ -75,7 +76,7 @@ describe('batchRouter-functions', () => {
             [addr.WETH, expandDecimals(11700, 18).toString(), expandDecimals(11700 * 5.5, 30).toString()]
         ))
 
-        await batchRouter.executeBatchPositions(false, params,{value: EXECUTION_FEE * 2 });
+        await batchRouter.executeBatchPositions(false, params,expandDecimals(162000, 18),{value: EXECUTION_FEE * 2 });
 
         await expect(batchRouter.connect(user0).cancelDeposit(expandDecimals(45000, 18)))
             .to.be.revertedWith("BatchRouter: batch under execution");
@@ -92,7 +93,7 @@ describe('batchRouter-functions', () => {
             10000
         )
         
-        await batchRouter.confirmAndDealGlp(expandDecimals(162000, 18), false);
+        await batchRouter.confirmAndDealGlp();
         expect(await batchRouter.currentDepositRound()).eq(2);
     }
     )
@@ -145,7 +146,7 @@ describe('batchRouter-functions', () => {
             [addr.WETH, expandDecimals(2000, 30).toString(), expandDecimals(2000 * 5.5, 30).toString(), router.address]
         ))
 
-        await batchRouter.executeBatchPositions(true, params, { value : EXECUTION_FEE * 2});
+        await batchRouter.executeBatchPositions(true, params,expandDecimals(24300, 18), { value : EXECUTION_FEE * 2});
 
         await expect(batchRouter.connect(user0).cancelWithdraw(expandDecimals(10000, 18)))
             .to.be.revertedWith("BatchRouter: batch under execution");
@@ -162,7 +163,7 @@ describe('batchRouter-functions', () => {
             10000
         )
         
-        await batchRouter.confirmAndDealGlp(expandDecimals(24300, 18), true);
+        await batchRouter.confirmAndDealGlp();
     })
 
     it('claims want', async () => {
