@@ -165,7 +165,8 @@ contract Router is ReentrancyGuard, Governable {
     }
 
     // executed only if strategy exited
-    function settle(uint256 _amount) external onlyGov {
+    function settle(uint256 _amount) external {
+        require(IStrategyVault(strategyVault).exited(), "Router: strategy not exited yet");
         IRewardTracker(stakedNeuGlpTracker).unstakeForAccount(msg.sender, feeNeuGlpTracker, _amount, msg.sender);
         IRewardTracker(feeNeuGlpTracker).unstakeForAccount(msg.sender, nGlp, _amount, address(this));
         IStrategyVault(strategyVault).settle(_amount, msg.sender);

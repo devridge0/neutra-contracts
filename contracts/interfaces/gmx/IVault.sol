@@ -35,6 +35,8 @@ interface IVault {
 
     function lastFundingTimes(address) external view returns (uint256);
 
+    function updateCumulativeFundingRate(address _token) external;
+
     function getFeeBasisPoints(address _token, uint256 _usdgDelta, uint256 _feeBasisPoints, uint256 _taxBasisPoints, bool _increment) external view returns (uint256);
 
     function getRedemptionAmount(address _token, uint256 _usdgAmount) external view returns (uint256);
