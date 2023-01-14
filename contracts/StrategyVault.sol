@@ -39,12 +39,10 @@ struct ConfirmList {
     uint256 beforeWantBalance;
 }
 
-struct PendingPositionInfo {
-    uint256 sizeDelta; // 30 decimals
-    uint256 collateralDelta; // decrease collateral 30 decimals
-    uint256 amountIn; // increase collateral want decimals
-    uint256 fundingRate;
-    uint256 fundingFee; // want decimals
+struct PendingPositionFeeInfo {
+    uint256 fundingRate; // wbtc and weth should have the same fundingRate  
+    uint256 wbtcFundingFee;
+    uint256 wethFundingFee;
 }
 
 contract StrategyVault is Initializable, UUPSUpgradeable {
@@ -66,7 +64,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
     uint256 public insuranceFund;
     uint256 public feeReserves;
-    uint256 public unpaidDebt;
+    uint256 public prepaidGmxFee;
 
     // gmx 
     uint256 public marginFeeBasisPoints;
@@ -76,7 +74,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     mapping(address => uint256) public unpaidFundingFee;
 
     ConfirmList public confirmList;
-    PendingPositionInfo public pendingPositionInfo;
+    PendingPositionFeeInfo public pendingPositionFeeInfo;
 
     address public gov;
     // deposit token
@@ -100,14 +98,16 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     mapping(address => bool) public routers;
     mapping(address => bool) public keepers;
 
+    uint256 pendingShortValue;
+
     event RebalanceActions(uint256 timestamp, bool isBuy, bool hasWbtcIncrease, bool hasWbtcDecrease, bool hasWethIncrease, bool hasWethDecrease);
     event BuyNeuGlp(uint256 amountIn, uint256 amountOut, uint256 value);
     event SellNeuGlp(uint256 amountIn, uint256 amountOut, address recipient);
     event Confirm();
-    event ConfirmRebalance(bool hasDebt, uint256 delta, uint256 unpaidDebt);
+    event ConfirmRebalance(bool hasDebt, uint256 delta, uint256 prepaidGmxFee);
     event Harvest(uint256 amountOut, uint256 feeReserves);
     event CollectManagementFee(uint256 alpha, uint256 lastHarvest);
-    event RepayFundingFee(uint256 wbtcFundingFee, uint256 wethFundingFee, uint256 unpaidDebt);
+    event RepayFundingFee(uint256 wbtcFundingFee, uint256 wethFundingFee, uint256 prepaidGmxFee);
     event DepositInsuranceFund(uint256 amount, uint256 insuranceFund);
     event BuyGlp(uint256 amount);
     event SellGlp(uint256 amount, address recipient);
@@ -220,11 +220,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
                 fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
 
-                pendingPositionInfo.fundingFee += fundingFee;
-
                 if (indexToken == wbtc) {
+                    pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
                     hasWbtcIncrease = true;
                 } else {
+                    pendingPositionFeeInfo.wethFundingFee = fundingFee;
                     hasWethIncrease = true;
                 }
                 // add additional funding fee here to save execution fee
@@ -288,11 +288,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
                 fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
 
-                pendingPositionInfo.fundingFee += fundingFee;
-
                 if (indexToken == wbtc) {
+                    pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
                     hasWbtcIncrease = true;
                 } else {
+                    pendingPositionFeeInfo.wethFundingFee = fundingFee;
                     hasWethIncrease = true;
                 }
                 // add additional funding fee here to save execution fee
@@ -334,13 +334,19 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         for (uint256 i=0; i<2; i++) {
             (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
             IERC20(want).transferFrom(msg.sender, address(this), amountIn);
-            pendingPositionInfo.sizeDelta += sizeDelta; // sizeDelta 30 decimals
-            pendingPositionInfo.amountIn += amountIn; // amountIn want deciamls
+
+            uint256 positionFee = sizeDelta * marginFeeBasisPoints / MAX_BPS;
+            uint256 shortValue = adjustForDecimals(amountIn, want, address(0));
+            pendingShortValue += shortValue - positionFee;
 
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
             fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
 
-            pendingPositionInfo.fundingFee += fundingFee;
+            if (indexToken == wbtc) {
+                pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
+            } else {
+                pendingPositionFeeInfo.wethFundingFee = fundingFee;
+            }
             
             // add additional funding fee here to save execution fee
             increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
@@ -363,21 +369,23 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         // always conduct harvest beforehand to update funding fee
         _harvest();
 
-        _addConfirmList();
+        confirmList.hasDecrease = true;
 
         for (uint256 i=0; i<2; i++) {
             (address indexToken, uint256 collateralDelta, uint256 sizeDelta, address recipient) = abi.decode(_params[i], (address, uint256, uint256, address));
             uint256 positionFee = sizeDelta * marginFeeBasisPoints / MAX_BPS; // 30 deciamls
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
 
-            pendingPositionInfo.fundingFee += fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0;
+            if (indexToken == wbtc) {
+                pendingPositionFeeInfo.wbtcFundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0;
+            } else {
+                pendingPositionFeeInfo.wethFundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0;
+            }
 
             // when collateralDelta is less than margin fee, fee will be subtracted on position state
             // to prevent , collateralDelta always has to be greater than fees
             // if it reverts, should repay funding fee first 
             require(collateralDelta > positionFee + fundingFee, "StrategyVault: not enough collateralDelta");
-            pendingPositionInfo.sizeDelta += sizeDelta;
-            pendingPositionInfo.collateralDelta += collateralDelta; 
 
             decreaseShortPosition(indexToken, collateralDelta, sizeDelta, recipient);
         }
@@ -402,15 +410,20 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
                 fundingFee = fundingFee > 0 ? adjustForDecimals(fundingFee, address(0), want) + 1 : 0; // round up
-            
+
+                if (indexToken == wbtc) {
+                    pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
+                } else {
+                    pendingPositionFeeInfo.wethFundingFee = fundingFee;
+                }
                 // add additional funding fee here to save execution fee
                 increaseShortPosition(indexToken, amountIn + fundingFee, sizeDelta);
                 continue;
             }
 
-            // call remainig actions
-            (bool success, ) = address(this).call(abi.encodePacked(selector, param));
-            require(success, "StrategyVault: call execution failed");
+            (address indexToken, uint256 collateralDelta, uint256 sizeDelta, address recipient) = abi.decode(param, (address, uint256, uint256, address));
+
+            decreaseShortPosition(indexToken, collateralDelta, sizeDelta, recipient);
         }
     }
 
@@ -423,12 +436,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         uint256 amountOut = buyGlp(_amountIn);
 
         uint256 longValue = _gmxHelper.getLongValue(amountOut); // 30 decimals
-        uint256 wbtcCollateralValue = _gmxHelper.getShortValue(address(this), wbtc);
-        uint256 wethCollateralValue = _gmxHelper.getShortValue(address(this), weth);
-        uint256 value = longValue + wbtcCollateralValue + wethCollateralValue;
-        
-        _revokePreviousPosition();
+        uint256 shortValue = pendingShortValue;
+        uint256 value = longValue + shortValue;
 
+        pendingShortValue = 0;
+        
         emit BuyNeuGlp(_amountIn, amountOut, value);
 
         return value;
@@ -439,8 +451,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         uint256 amountOut = sellGlp(_glpAmount, _recipient); 
   
-        _revokePreviousPosition();
-
         emit SellNeuGlp(_glpAmount, amountOut, _recipient);
 
         return amountOut;
@@ -451,14 +461,15 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         _confirm();
         
         if (confirmList.hasDecrease) {
-            IERC20(want).transfer(msg.sender, pendingPositionInfo.fundingFee);
+            // wamt decimals
+            uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
+            IERC20(want).transfer(msg.sender, fundingFee);
             confirmList.hasDecrease = false;
         }
         
-        pendingPositionInfo.fundingRate = 0;
-        pendingPositionInfo.fundingFee = 0;
-        confirmed = true;
+        _clearPendingPositionFeeInfo();
 
+        confirmed = true;
         emit Confirm();
     }
 
@@ -468,28 +479,32 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         uint256 currentBalance = IERC20(want).balanceOf(address(this));
 
+        uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
+
         // fundingFee must be deducted
-        currentBalance -= pendingPositionInfo.fundingFee; // want decimals
+        currentBalance -= fundingFee; // want decimals
+
         bool hasDebt = currentBalance < confirmList.beforeWantBalance;
         uint256 delta = hasDebt ? confirmList.beforeWantBalance - currentBalance : currentBalance - confirmList.beforeWantBalance;
 
         if(hasDebt) {
-            unpaidDebt = unpaidDebt + delta;
+            prepaidGmxFee = prepaidGmxFee + delta;
         } else {
-            if (unpaidDebt > delta) {
-                unpaidDebt = unpaidDebt - delta;
+            if (prepaidGmxFee > delta) {
+                prepaidGmxFee = prepaidGmxFee - delta;
             } else {
-                feeReserves += delta - unpaidDebt;
-                unpaidDebt = 0;
+                feeReserves += delta - prepaidGmxFee;
+                prepaidGmxFee = 0;
             }
         }
 
         confirmList.beforeWantBalance = 0;
-        pendingPositionInfo.fundingRate = 0;
-        pendingPositionInfo.fundingFee = 0;
+
+        _clearPendingPositionFeeInfo();
+
         confirmed = true;
 
-        emit ConfirmRebalance(hasDebt, delta, unpaidDebt);
+        emit ConfirmRebalance(hasDebt, delta, prepaidGmxFee);
     }
 
     function _confirm() internal {
@@ -498,7 +513,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         (,,,uint256 wbtcFundingRate,,,,) = _gmxHelper.getPosition(address(this), wbtc);
         (,,,uint256 wethFundingRate,,,,) = _gmxHelper.getPosition(address(this), weth);
 
-        uint256 lastUpdatedFundingRate = pendingPositionInfo.fundingRate;
+        uint256 lastUpdatedFundingRate = pendingPositionFeeInfo.fundingRate;
         require(wbtcFundingRate >= lastUpdatedFundingRate && wethFundingRate >= lastUpdatedFundingRate, "StrategyVault: positions not executed");
         
         if (wbtcFundingRate > lastUpdatedFundingRate) {
@@ -511,7 +526,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             unpaidFundingFee[weth] += adjustForDecimals(wethFundingFee, address(0), want) + 1;
         }
         
-        unpaidDebt += pendingPositionInfo.fundingFee; // want decimals
+        uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
+
+        prepaidGmxFee += fundingFee; // want decimals
     }
 
 
@@ -598,9 +615,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             increaseShortPosition(weth, wethFundingFee, 0);
         }
 
-        unpaidDebt = unpaidDebt + wbtcFundingFee + wethFundingFee;
+        prepaidGmxFee = prepaidGmxFee + wbtcFundingFee + wethFundingFee;
 
-        emit RepayFundingFee(wbtcFundingFee, wethFundingFee, unpaidDebt);
+        emit RepayFundingFee(wbtcFundingFee, wethFundingFee, prepaidGmxFee);
     }
 
     function exitStrategy() external payable onlyGov {
@@ -633,21 +650,17 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
     function _updatePendingPositionFundingRate() internal {
         uint256 cumulativeFundingRate = IGmxHelper(gmxHelper).getCumulativeFundingRates(want);
-        pendingPositionInfo.fundingRate = cumulativeFundingRate;
+        pendingPositionFeeInfo.fundingRate = cumulativeFundingRate;
     }
 
     function _requireConfirm() internal {
         confirmed = false;
     }
 
-    function _addConfirmList() internal {
-        confirmList.hasDecrease = true;
-    }
-
-    function _revokePreviousPosition() internal {
-        pendingPositionInfo.sizeDelta = 0;
-        pendingPositionInfo.collateralDelta = 0;
-        pendingPositionInfo.amountIn = 0;
+    function _clearPendingPositionFeeInfo() internal {
+        pendingPositionFeeInfo.fundingRate = 0;
+        pendingPositionFeeInfo.wbtcFundingFee = 0;
+        pendingPositionFeeInfo.wethFundingFee = 0;
     }
 
     function depositInsuranceFund(uint256 _amount) public onlyGov {
@@ -820,14 +833,14 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     function withdrawFees(address _receiver) external onlyGov returns (uint256) {
         _harvest();
 
-        if (unpaidDebt >= feeReserves) {
+        if (prepaidGmxFee >= feeReserves) {
             feeReserves = 0;
-            unpaidDebt -= feeReserves;
+            prepaidGmxFee -= feeReserves;
             return 0;
         }
 
-        uint256 amount = feeReserves - unpaidDebt;
-        unpaidDebt = 0;
+        uint256 amount = feeReserves - prepaidGmxFee;
+        prepaidGmxFee = 0;
         feeReserves = 0;
         IERC20(want).transfer(_receiver, amount);
 
