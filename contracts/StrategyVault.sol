@@ -126,6 +126,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     event SetManagement(address management, uint256 fee);
     event WithdrawEth(uint256 amount);
     event ConfirmFundingRates(uint256 lastUpdatedFundingRate, uint256 wbtcFundingRate, uint256 wethFundingRate);
+    event AdjustPrepaidGmxFee(uint256 adjustAmount, uint256 prepaidGmxFee);
 
     modifier onlyGov() {
         _onlyGov();
@@ -858,6 +859,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     function withdrawEth() external payable onlyGov {
         payable(msg.sender).transfer(address(this).balance);
         emit WithdrawEth(address(this).balance);
+    }
+
+    function adjustPrepaidGmxFee(uint256 _amount) external onlyGov {
+        prepaidGmxFee -= _amount;
+        emit AdjustPrepaidGmxFee(_amount, prepaidGmxFee);
     }
 
     function tokenToUsdMin(address _token, uint256 _tokenAmount) public view returns(uint256) {
