@@ -218,8 +218,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
-
+                fundingFee = usdToTokenMax(want, fundingFee, true);
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
                     hasWbtcIncrease = true;
@@ -286,7 +285,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
+                fundingFee = usdToTokenMax(want, fundingFee, true);
 
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -336,11 +335,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             IERC20(want).transferFrom(msg.sender, address(this), amountIn);
 
             uint256 positionFee = sizeDelta * marginFeeBasisPoints / MAX_BPS;
-            uint256 shortValue = adjustForDecimals(amountIn, want, address(0), false);
+            uint256 shortValue = tokenToUsdMin(want, amountIn);
             pendingShortValue += shortValue - positionFee;
 
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-            fundingFee = adjustForDecimals(fundingFee, address(0), want, true); 
+            fundingFee = usdToTokenMax(want, fundingFee, true);
 
             if (indexToken == wbtc) {
                 pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -377,9 +376,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
 
             if (indexToken == wbtc) {
-                pendingPositionFeeInfo.wbtcFundingFee = adjustForDecimals(fundingFee, address(0), want, true);
+                pendingPositionFeeInfo.wbtcFundingFee = usdToTokenMax(want, fundingFee, true);
             } else {
-                pendingPositionFeeInfo.wethFundingFee = adjustForDecimals(fundingFee, address(0), want, true);
+                pendingPositionFeeInfo.wethFundingFee = usdToTokenMax(want, fundingFee, true);
             }
 
             // when collateralDelta is less than margin fee, fee will be subtracted on position state
@@ -409,7 +408,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
                 
                 uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
-                fundingFee = adjustForDecimals(fundingFee, address(0), want, true);
+                fundingFee = usdToTokenMax(want, fundingFee, true);
 
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -517,17 +516,18 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         
         if (wbtcFundingRate > lastUpdatedFundingRate) {
             uint256 wbtcFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), wbtc, lastUpdatedFundingRate); // 30 decimals
-            unpaidFundingFee[wbtc] += adjustForDecimals(wbtcFundingFee, address(0), want, true);
+            unpaidFundingFee[wbtc] += usdToTokenMax(want, wbtcFundingFee, true);
         } 
 
         if (wethFundingRate > lastUpdatedFundingRate) {
             uint256 wethFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), weth, lastUpdatedFundingRate); // 30 decimals
-            unpaidFundingFee[weth] += adjustForDecimals(wethFundingFee, address(0), want, true);
+            unpaidFundingFee[weth] += usdToTokenMax(want, wethFundingFee, true);
         }
         
         uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
 
         prepaidGmxFee += fundingFee; // want decimals
+
         emit ConfirmFundingRates(lastUpdatedFundingRate, wbtcFundingRate, wethFundingRate);
     }
 
@@ -600,9 +600,9 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         IGmxHelper _gmxHelper = IGmxHelper(gmxHelper);
 
         uint256 wbtcFundingFee = _gmxHelper.getFundingFee(address(this), wbtc); // 30 decimals
-        wbtcFundingFee = adjustForDecimals(wbtcFundingFee, address(0), want, true);
+        wbtcFundingFee = usdToTokenMax(want, wbtcFundingFee, true);
         uint256 wethFundingFee = _gmxHelper.getFundingFee(address(this), weth);
-        wethFundingFee = adjustForDecimals(wethFundingFee, address(0), want, true);
+        wethFundingFee = usdToTokenMax(want, wethFundingFee, true);
         
         uint256 balance = IERC20(want).balanceOf(address(this));
         require(wethFundingFee + wbtcFundingFee <= balance, "StrategyVault: not enough balance to repay");
@@ -805,15 +805,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return exited ? IERC20(want).balanceOf(address(this)) : IGmxHelper(gmxHelper).totalValue(address(this));
     }
 
-    function adjustForDecimals(uint256 _amount, address _tokenDiv, address _tokenMul, bool _isCeil) public view returns (uint256) {
-        uint256 decimalsDiv = _tokenDiv == address(0) ? 30 : IERC20(_tokenDiv).decimals();
-        uint256 decimalsMul = _tokenMul == address(0) ? 30 : IERC20(_tokenMul).decimals();
-        if (_isCeil) {
-            return ceilDiv(_amount * (10 ** decimalsMul), 10 ** decimalsDiv);
-        }
-        return _amount * (10 ** decimalsMul) / (10 ** decimalsDiv);
-    }
-
     function repayUnpaidFundingFee() external payable onlyKeepersAndAbove {
         require(!exited, "StrategyVault: strategy already exited");
 
@@ -867,6 +858,20 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     function withdrawEth() external payable onlyGov {
         payable(msg.sender).transfer(address(this).balance);
         emit WithdrawEth(address(this).balance);
+    }
+
+    function tokenToUsdMin(address _token, uint256 _tokenAmount) public view returns(uint256) {
+        if (_tokenAmount == 0) { return 0; }
+        uint256 price = IGmxHelper(gmxHelper).getPrice(_token, false);
+        uint256 decimals = IERC20(_token).decimals();
+        return _tokenAmount * price / (10 ** decimals);
+    }
+
+    function usdToTokenMax(address _token, uint256 _usdAmount, bool _isCeil) public view returns(uint256) {
+        if (_usdAmount == 0) { return 0; }
+        uint256 price = IGmxHelper(gmxHelper).getPrice(_token, false);
+        uint256 decimals = IERC20(_token).decimals();
+        return _isCeil ? ceilDiv(_usdAmount * (10 ** decimals), price) : _usdAmount * (10 ** decimals) / price;
     }
 
     function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
