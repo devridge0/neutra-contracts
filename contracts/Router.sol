@@ -77,9 +77,9 @@ contract Router is ReentrancyGuard, Governable {
 
     /*
     NOTE:
-    GMX requires two transaction to increase or decrase positions
+    GMX requires two part transaction process to increase or decrease positions
     therefore, router has to conduct two transactions to finish the process
-    always execute positions first then confrim and handle glp
+    always execute this function first then confirm and handle glp
     */
     function executePositionsBeforeDealGlp(uint256 _amount, bytes[] calldata _params, bool _isWithdraw) external payable onlyHandler {
         if (!_isWithdraw) {
@@ -109,7 +109,7 @@ contract Router is ReentrancyGuard, Governable {
     /*
     NOTE:
     After positions execution, requires to confirm those postiions
-    If positions executed successfully, handles glp
+    If positions are executed successfully, then buys glp
     */
     function confirmAndBuy(uint256 _wantAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmountsWant = pendingAmounts[want];
@@ -138,7 +138,7 @@ contract Router is ReentrancyGuard, Governable {
     /*
     NOTE:
     After positions execution, requires to confirm those postiions
-    If positions executed successfully, handles glp
+    If positions are executed successfully, then sells glp
     */
     function confirmAndSell(uint256 _glpAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmount = pendingAmounts[nGlp];
@@ -164,7 +164,7 @@ contract Router is ReentrancyGuard, Governable {
         return amountOut;
     }
 
-    // executed only if strategy exited
+    // called only if strategy is exited
     function settle(uint256 _amount) external {
         require(IStrategyVault(strategyVault).exited(), "Router: strategy not exited yet");
         IRewardTracker(stakedNeuGlpTracker).unstakeForAccount(msg.sender, feeNeuGlpTracker, _amount, msg.sender);

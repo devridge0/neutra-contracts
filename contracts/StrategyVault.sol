@@ -40,7 +40,7 @@ struct ConfirmList {
 }
 
 struct PendingPositionFeeInfo {
-    uint256 fundingRate; // wbtc and weth should have the same fundingRate  
+    uint256 fundingRate; // wbtc and weth always have the same fundingRate  
     uint256 wbtcFundingFee;
     uint256 wethFundingFee;
 }
@@ -69,7 +69,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     // gmx 
     uint256 public marginFeeBasisPoints;
 
-    // fundingFee can be unpaid if requests position before funding rate increases 
+    // gmx funding fee can be unpaid if it requests create position before funding rate increases 
     // and then position gets executed after funding rate increases 
     mapping(address => uint256) public unpaidFundingFee;
 
@@ -198,7 +198,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         bool hasWbtcDecrease;
         bool hasWethIncrease;
         bool hasWethDecrease;
-        // save current balance of want to track debt cost after rebalance; 
+        // save current balance of want to track unpredictable gmx cost while rebalancing
         confirmList.beforeWantBalance = IERC20(want).balanceOf(address(this));
 
         for(uint256 i=0; i<length; i++) {
@@ -218,7 +218,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 require(selector == this.increaseShortPosition.selector, "StrategyVault: should increase position");
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
-                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
+                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken);
                 fundingFee = usdToTokenMax(want, fundingFee, true);
                 if (indexToken == wbtc) {
                     pendingPositionFeeInfo.wbtcFundingFee = fundingFee;
@@ -232,7 +232,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 continue;
             }
 
-            // call remainig actions should be decrease action
             (address indexToken, uint256 collateralDelta, uint256 sizeDelta, address recipient) = abi.decode(param, (address, uint256, uint256, address));
 
             if (indexToken == wbtc) {
@@ -265,7 +264,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         bool hasWbtcDecrease;
         bool hasWethIncrease;
         bool hasWethDecrease;
-        // save current balance of want to track debt cost after rebalance; 
+        // save current balance of want to track unpredictable gmx cost while rebalancing; 
         confirmList.beforeWantBalance = IERC20(want).balanceOf(address(this));
 
         for(uint256 i=0; i<length; i++){
@@ -285,7 +284,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 require(selector == this.increaseShortPosition.selector, "StrategyVault: should increase position");
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
 
-                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
+                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken);
                 fundingFee = usdToTokenMax(want, fundingFee, true);
 
                 if (indexToken == wbtc) {
@@ -318,7 +317,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
     
     /// @dev deposit init function 
-    /// execute wbtc, weth increase positions
+    /// executes wbtc, weth increase positions
     function executeIncreasePositions(bytes[] calldata _params) external payable onlyRouter {
         require(confirmed, "StrategyVault: not confirmed yet");
         require(!exited, "StrategyVault: strategy already exited");
@@ -328,7 +327,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         
         _updatePendingPositionFundingRate();
 
-        // always conduct harvest beforehand to update funding fee
         _harvest();
 
         for (uint256 i=0; i<2; i++) {
@@ -339,7 +337,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             uint256 shortValue = tokenToUsdMin(want, amountIn);
             pendingShortValue += shortValue - positionFee;
 
-            uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
+            uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken);
             fundingFee = usdToTokenMax(want, fundingFee, true);
 
             if (indexToken == wbtc) {
@@ -356,7 +354,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     /// @dev withdraw init function
-    /// execute wbtc, weth decrease positions
+    /// executes wbtc, weth decrease positions
     function executeDecreasePositions(bytes[] calldata _params) external payable onlyRouter {
         require(confirmed, "StrategyVault: not confirmed yet");
         require(!exited, "StrategyVault: strategy already exited");
@@ -366,7 +364,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         
         _updatePendingPositionFundingRate();
 
-        // always conduct harvest beforehand to update funding fee
         _harvest();
 
         confirmList.hasDecrease = true;
@@ -382,8 +379,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
                 pendingPositionFeeInfo.wethFundingFee = usdToTokenMax(want, fundingFee, true);
             }
 
-            // when collateralDelta is less than margin fee, fee will be subtracted on position state
-            // to prevent , collateralDelta always has to be greater than fees
+            // when collateralDelta is less than margin fee + position fee, total fees will be subtracted from position state
+            // to prevent it, collateralDelta always has to be greater than total fees
             // if it reverts, should repay funding fee first 
             require(collateralDelta > positionFee + fundingFee, "StrategyVault: not enough collateralDelta");
 
@@ -408,7 +405,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
             if(selector == this.increaseShortPosition.selector) {
                 (address indexToken, uint256 amountIn, uint256 sizeDelta) = abi.decode(_params[i], (address, uint256, uint256));
                 
-                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken); // 30 decimals
+                uint256 fundingFee = _gmxHelper.getFundingFee(address(this), indexToken);
                 fundingFee = usdToTokenMax(want, fundingFee, true);
 
                 if (indexToken == wbtc) {
@@ -431,11 +428,10 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         require(confirmed, "StrategyVault: not confirmed yet");
         IGmxHelper _gmxHelper = IGmxHelper(gmxHelper);
         
-        // amountOut 18 decimal
         IERC20(want).transferFrom(msg.sender, address(this), _amountIn);
         uint256 amountOut = buyGlp(_amountIn);
 
-        uint256 longValue = _gmxHelper.getLongValue(amountOut); // 30 decimals
+        uint256 longValue = _gmxHelper.getLongValue(amountOut);
         uint256 shortValue = pendingShortValue;
         uint256 value = longValue + shortValue;
 
@@ -456,12 +452,11 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         return amountOut;
     }
 
-    // confirm for deposit & withdraw
+    // confirm only for deposit & withdraw
     function confirm() external onlyRouter {
         _confirm();
         
         if (confirmList.hasDecrease) {
-            // wamt decimals
             uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
             IERC20(want).transfer(msg.sender, fundingFee);
             confirmList.hasDecrease = false;
@@ -472,7 +467,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         confirmed = true;
     }
 
-    // confirm for rebalance
+    // confirm only for rebalance
     function confirmRebalance() external onlyKeepersAndAbove {
         _confirm();
 
@@ -480,8 +475,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
 
-        // fundingFee must be deducted
-        currentBalance -= fundingFee; // want decimals
+        currentBalance -= fundingFee;
 
         bool hasDebt = currentBalance < confirmList.beforeWantBalance;
         uint256 delta = hasDebt ? confirmList.beforeWantBalance - currentBalance : currentBalance - confirmList.beforeWantBalance;
@@ -516,18 +510,18 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         require(wbtcFundingRate >= lastUpdatedFundingRate && wethFundingRate >= lastUpdatedFundingRate, "StrategyVault: positions not executed");
         
         if (wbtcFundingRate > lastUpdatedFundingRate) {
-            uint256 wbtcFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), wbtc, lastUpdatedFundingRate); // 30 decimals
+            uint256 wbtcFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), wbtc, lastUpdatedFundingRate);
             unpaidFundingFee[wbtc] += usdToTokenMax(want, wbtcFundingFee, true);
         } 
 
         if (wethFundingRate > lastUpdatedFundingRate) {
-            uint256 wethFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), weth, lastUpdatedFundingRate); // 30 decimals
+            uint256 wethFundingFee = _gmxHelper.getFundingFeeWithRate(address(this), weth, lastUpdatedFundingRate);
             unpaidFundingFee[weth] += usdToTokenMax(want, wethFundingFee, true);
         }
         
         uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
 
-        prepaidGmxFee += fundingFee; // want decimals
+        prepaidGmxFee += fundingFee;
 
         emit ConfirmFundingRates(lastUpdatedFundingRate, wbtcFundingRate, wethFundingRate);
     }
@@ -590,8 +584,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         lastCollect = 0;
     }
 
-    /// @dev repaying funding fee requires execution fee
-    /// @dev needs to call regularly by keepers
     function repayFundingFee() external payable onlyKeepersAndAbove {
         require(!exited, "StrategyVault: strategy already exited");
         require(msg.value >= executionFee * 2, "StrategyVault: not enough execution fee");
@@ -639,7 +631,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         exited = true;
     }
 
-    // executed only if strategy exited
+    // called only if strategy is exited
     function settle(uint256 _amount, address _recipient) external onlyRouter {
         require(exited, "StrategyVault: stragey not exited yet");
         uint256 value = _totalValue();
