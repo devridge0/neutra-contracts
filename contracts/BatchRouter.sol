@@ -40,6 +40,8 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     uint256 public totalSnGlpReceivedAmount;
     uint256 public totalWantReceivedAmount;
 
+    uint256 public whitelistCapPerAccount;
+
     mapping (address => uint256) public wantBalances;
     mapping (address => uint256) public snGlpBalances;
     mapping (uint256 => uint256) public totalWantPerRound;
@@ -90,6 +92,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     event SetDepositLimit(uint256 limit);
     event SetHandler(address handler, bool isActive);
     event SetSale(bool isPublicSale, bool isWhitelistSale);
+    event SetWhitelistCapPerAccount(uint256 amount);
 
     modifier onlyGov() {
         _onlyGov();
@@ -144,6 +147,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
         totalWantPerRound[currentDepositRound] += _amount;
         require(totalWantPerRound[currentDepositRound] <= depositLimit, "BatchRouter: exceeded deposit limit");
         wantBalances[msg.sender] += _amount;
+        require(whitelistCapPerAccount >= wantBalances[msg.sender], "BatchRouter: exceeded whitelist limit");
 
         if (depositRound[msg.sender] == 0) {
             depositRound[msg.sender] = currentDepositRound;
@@ -375,6 +379,11 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     function setExecutionFee(uint256 _executionFee) external onlyGov {
         executionFee = _executionFee;
         emit SetExecutionFee(_executionFee);
+    }
+
+    function setWhitelistCapPerAccount(uint256 _amount) external onlyGov {
+        whitelistCapPerAccount = _amount;
+        emit SetWhitelistCapPerAccount(_amount);
     }
 
     function claimableWant(address _account) public view returns (uint256) {
