@@ -258,9 +258,6 @@ async function main() {
     tx = await nGlp.setMinter(strategyVault.address, true);
     await tx.wait();
 
-    tx = await esNEU.setInPrivateTransferMode(true);
-    await tx.wait();
-
     tx = await esNEU.setHandlers([
         batchRouter.address,
         rewardRouter.address,

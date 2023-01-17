@@ -7,13 +7,11 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 abstract contract MintableERC20 is ERC20 {
     address gov;
 
-    bool public inPrivateTransferMode;
-
     mapping (address => bool) public isMinter;
     mapping (address => bool) public isHandler;
 
     modifier onlyGov() {
-        require(gov == _msgSender(), "MintableErc20: forbidden");
+        require(gov == _msgSender(), "MintalbeERC20: forbidden");
         _;
     }
     
@@ -40,10 +38,6 @@ abstract contract MintableERC20 is ERC20 {
         }
     }
 
-    function setInPrivateTransferMode(bool _inPrivateTransferMode) external onlyGov {
-        inPrivateTransferMode = _inPrivateTransferMode;
-    }
-
     function mint(address _account, uint256 _amount) external onlyMinter {
         _mint(_account, _amount);
     }
@@ -66,17 +60,6 @@ abstract contract MintableERC20 is ERC20 {
 
         _spendAllowance(from, spender, amount);
         _transfer(from, to, amount);
-        return true;
-    }
-
-    function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        address owner = _msgSender();
-
-        if(inPrivateTransferMode) {
-            require(isHandler[msg.sender], "BaseToken: msg.sender not whitelisted");
-        }
-
-        _transfer(owner, to, amount);
         return true;
     }
 }

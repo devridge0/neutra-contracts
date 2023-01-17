@@ -120,7 +120,6 @@ export const neutraProtocolFixture = deployments.createFixture(async hre => {
     ], [true, true, true]);
     await nGlp.setMinter(router.address, true);
     await nGlp.setMinter(strategyVault.address, true);
-    await esNEU.setInPrivateTransferMode(true);
 
     await esNEU.setHandlers([
         batchRouter.address,
