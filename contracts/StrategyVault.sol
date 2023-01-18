@@ -631,7 +631,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         exited = true;
     }
 
-    // called only if strategy is exited
+    // call only if strategy is exited
+    // make sure to withdraw insuranceFund and withdraw fees beforehand
     function settle(uint256 _amount, address _recipient) external onlyRouter {
         require(exited, "StrategyVault: stragey not exited yet");
         uint256 value = _totalValue();
@@ -763,7 +764,6 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     }
 
     function setCallbackTarget(address _callbackTarget) external onlyGov {
-        require(_callbackTarget != address(0), "StrategyVault: invalid address");
         callbackTarget = _callbackTarget;
         emit SetCallbackTarget(_callbackTarget);
     }

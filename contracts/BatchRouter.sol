@@ -14,7 +14,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
     bool public executed;
     bool public isPublicSale;
     bool public isWhitelistSale;
-    bool public executionStatus; //false - deposit , true - withdraw
+    bool public lastExecutionStatus; //false - deposit , true - withdraw
 
     address public gov;
 
@@ -308,7 +308,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
         IRouter(router).executePositionsBeforeDealGlp{value: msg.value}(amountIn, _params, _isWithdraw);
 
         pendingDealAmount = _dealAmount;
-        executionStatus = _isWithdraw;
+        lastExecutionStatus = _isWithdraw;
 
         executed = true; 
 
@@ -317,7 +317,7 @@ contract BatchRouter is Initializable, UUPSUpgradeable {
 
     function confirmAndDealGlp() external onlyHandlerAndAbove {
         require(executed, "BatchRouter: executes positions first");
-        if (!executionStatus) {
+        if (!lastExecutionStatus) {
             uint256 amountOut = IRouter(router).confirmAndBuy(pendingDealAmount, address(this));
 
             _updateRewards();
