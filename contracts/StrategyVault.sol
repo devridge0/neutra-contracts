@@ -127,6 +127,7 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
     event WithdrawEth(uint256 amount);
     event ConfirmFundingRates(uint256 lastUpdatedFundingRate, uint256 wbtcFundingRate, uint256 wethFundingRate);
     event AdjustPrepaidGmxFee(uint256 adjustAmount, uint256 prepaidGmxFee);
+    event ConfirmFundingFees(uint256 wbtcFundingFee, uint256 pendingPositionFeeInfo, uint256 prepaidGmxFee);
 
     modifier onlyGov() {
         _onlyGov();
@@ -475,7 +476,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
 
         uint256 fundingFee = pendingPositionFeeInfo.wbtcFundingFee + pendingPositionFeeInfo.wethFundingFee;
 
-        currentBalance -= fundingFee;
+        // fundingFee should be added in order to avoid double counting
+        currentBalance += fundingFee;
 
         bool hasDebt = currentBalance < confirmList.beforeWantBalance;
         uint256 delta = hasDebt ? confirmList.beforeWantBalance - currentBalance : currentBalance - confirmList.beforeWantBalance;
@@ -524,8 +526,8 @@ contract StrategyVault is Initializable, UUPSUpgradeable {
         prepaidGmxFee += fundingFee;
 
         emit ConfirmFundingRates(lastUpdatedFundingRate, wbtcFundingRate, wethFundingRate);
+        emit ConfirmFundingFees(pendingPositionFeeInfo.wbtcFundingFee, pendingPositionFeeInfo.wethFundingFee, prepaidGmxFee);
     }
-
 
     function harvest() external {
         _harvest();
