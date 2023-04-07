@@ -10,7 +10,7 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 
-/// deprecatd
+// This contract will be deprecated after the nGLP V2 update.
 contract BatchRouter is Initializable, UUPSUpgradeable {
     bool public executed;
     bool public isPublicSale;

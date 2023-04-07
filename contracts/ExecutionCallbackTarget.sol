@@ -9,22 +9,28 @@ import {IRouter} from "./interfaces/IRouter.sol";
 contract ExecutionCallbackTarget is IPositionRouterCallbackReceiver {
     enum PositionExecutionStatus { NONE, PARTIAL}
 
-    address public strategyVault;
-    address public router;
+    address public immutable router;
+    address public immutable positionRouter;
 
     PositionExecutionStatus public status;
 
     event GmxPositionCallback(address keeper, bytes32 requestKey, bool isExecuted, bool isIncrease);
 
-    constructor(address _router) {
+    modifier onlyPositionRouter() {
+        _onlyPositionRouter();
+        _;
+    }
+
+    constructor(address _router, address _positionRouter) {
         router = _router;
+        positionRouter = _positionRouter;
     }
 
     function isContract() external pure returns (bool) {
         return true;
     }
 
-    function gmxPositionCallback(bytes32 _requestKey, bool _isExecuted, bool _isIncrease) external {
+    function gmxPositionCallback(bytes32 _requestKey, bool _isExecuted, bool _isIncrease) external onlyPositionRouter {
         if(_isExecuted) {
             _successCallback(_isIncrease, _requestKey);
         } else {
@@ -49,6 +55,13 @@ contract ExecutionCallbackTarget is IPositionRouterCallbackReceiver {
     }
 
     function _failFallback(bool _isIncrease) internal {
+        if (status == PositionExecutionStatus.PARTIAL) {
+            status = PositionExecutionStatus.NONE;
+        }
         IRouter(router).failCallback(_isIncrease);
+    }
+
+    function _onlyPositionRouter() internal {
+        require(msg.sender == positionRouter, "invalid positionRouter");
     }
 }

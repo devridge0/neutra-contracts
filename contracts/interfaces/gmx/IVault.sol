@@ -37,7 +37,13 @@ interface IVault {
 
     function updateCumulativeFundingRate(address _token) external;
 
-    function getFeeBasisPoints(address _token, uint256 _usdgDelta, uint256 _feeBasisPoints, uint256 _taxBasisPoints, bool _increment) external view returns (uint256);
+    function getFeeBasisPoints(
+        address _token,
+        uint256 _usdgDelta,
+        uint256 _feeBasisPoints,
+        uint256 _taxBasisPoints,
+        bool _increment
+    ) external view returns (uint256);
 
     function getRedemptionAmount(address _token, uint256 _usdgAmount) external view returns (uint256);
 
@@ -61,4 +67,14 @@ interface IVault {
         address _indexToken,
         bool _isLong
     ) external view returns (uint256, uint256, uint256, uint256, uint256, uint256, bool, uint256);
+
+    function gov() external view returns (address);
+
+    function tokenToUsdMin(address _token, uint256 _tokenAmount) external view returns (uint256);
+
+    function usdToTokenMin(address _token, uint256 _usdAmount) external view returns (uint256);
+
+    function usdToTokenMax(address _token, uint256 _usdAmount) external view returns (uint256);
+
+    function fundingInterval() external view returns (uint256);
 }

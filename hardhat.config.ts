@@ -13,7 +13,7 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 256
+        runs: 1
       }
     }
   },
@@ -21,7 +21,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         url: "https://rpc.ankr.com/arbitrum",
-        blockNumber: 50303054,
+        blockNumber: 71465399,
       },
       blockGasLimit: 0x1fffffffffff,
       gasPrice: 0,
@@ -43,6 +43,9 @@ const config: HardhatUserConfig = {
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
+  },
+  mocha: {
+    timeout: 300000,
   }
 };
 

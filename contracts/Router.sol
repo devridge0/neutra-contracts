@@ -10,8 +10,7 @@ import { IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import { IERC20 } from "./interfaces/IERC20.sol";
 import { IMintable } from "./interfaces/IMintable.sol";
 
-
-/// deprecated
+// This contract will be deprecated after the nGLP V2 update.
 contract Router is ReentrancyGuard, Governable {
     bool public isSale;
     bool public initialDeposit;

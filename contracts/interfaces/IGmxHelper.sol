@@ -61,4 +61,8 @@ interface IGmxHelper {
     function adjustDecimalsFromUsdg(uint256 _amount, address _token) external view returns (uint256);
 
     function getRequestQueueLengths() external view returns (uint256, uint256, uint256, uint256);
+
+    function getFundingInterval() external view returns (uint256);
+
+    function getMinExecutionFee() external view returns (uint256);
 }

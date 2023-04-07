@@ -14,11 +14,8 @@ contract EsNEUManager is Governable {
     mapping(address => uint256) private _balances;
 
     event Transfer(address sender, address recipient, uint256 amount);
-    
-    constructor(
-        address _esNeu,
-        address _vester
-    ){
+
+    constructor(address _esNeu, address _vester) {
         esNeu = _esNeu;
         vester = _vester;
     }
@@ -31,7 +28,7 @@ contract EsNEUManager is Governable {
         _balances[account] += amount;
 
         IMintable(esNeu).mint(address(this), amount);
-    } 
+    }
 
     function burnForAccount(address account, uint256 amount) public onlyGov {
         _balances[account] -= amount;
@@ -39,7 +36,7 @@ contract EsNEUManager is Governable {
         IMintable(esNeu).burn(address(this), amount);
     }
 
-    function transfer(address _recipient, uint256 _amount) public returns (bool){
+    function transfer(address _recipient, uint256 _amount) public returns (bool) {
         require(_amount <= _balances[msg.sender], "EsNEUManager, not enough balance");
         require(_amount > 0, "EsNEUManager: invalid _amount");
 

@@ -179,7 +179,9 @@ contract RewardRouter is ReentrancyGuard, Governable {
         uint256 esNeuAmount = 0;
 
         if (_shouldClaimEsNeu) {
-            esNeuAmount = IRewardTracker(stakedNeuTracker).claimForAccount(account, account);
+            uint256 esNeuAmount0 = IRewardTracker(stakedNeuTracker).claimForAccount(account, account);
+            uint256 esNeuAmount1 = IRewardTracker(stakedNeuGlpTracker).claimForAccount(account, account);
+            esNeuAmount = esNeuAmount0 + esNeuAmount1;
         }
 
         if (_shouldStakeEsNeu && esNeuAmount > 0) {
@@ -195,7 +197,7 @@ contract RewardRouter is ReentrancyGuard, Governable {
         }
 
         if (_shouldClaimFee) {
-                IRewardTracker(feeNeuTracker).claimForAccount(account, account);
+            IRewardTracker(feeNeuTracker).claimForAccount(account, account);
         }
     }
 
@@ -386,7 +388,7 @@ contract RewardRouter is ReentrancyGuard, Governable {
             uint256 stakedBnNeu = IRewardTracker(feeNeuTracker).depositBalances(_account, bnNeu);
 
             if (stakedBnNeu > 0) {
-                uint256 reductionAmount = stakedBnNeu * _amount / balance;
+                uint256 reductionAmount = (stakedBnNeu * _amount) / balance;
 
                 IRewardTracker(feeNeuTracker).unstakeForAccount(_account, bnNeu, reductionAmount, _account);
                 IMintable(bnNeu).burn(_account, reductionAmount);

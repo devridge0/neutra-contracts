@@ -12,8 +12,6 @@ struct GmxConfig {
     address vault;
     address glp;
     address fsGlp;
-    // address fGlp;
-    // address sbfGmx;
     address glpManager;
     address positionRouter;
     address usdg;
@@ -23,20 +21,18 @@ contract GmxHelper {
     address public gov;
 
     // deposit token
-    address public want;
-    address public wbtc;
-    address public weth;
+    address public immutable want;
+    address public immutable wbtc;
+    address public immutable weth;
 
     // GMX contracts
-    address public gmxVault;
-    address public glp;
-    address public fsGlp;
-    // address public fGlp;
-    address public nGlp;
-    // address public sbfGmx;
-    address public glpManager;
-    address public positionRouter;
-    address public usdg;
+    address public immutable gmxVault;
+    address public immutable glp;
+    address public immutable fsGlp;
+    address public immutable nGlp;
+    address public immutable glpManager;
+    address public immutable positionRouter;
+    address public immutable usdg;
 
     modifier onlyGov() {
         _onlyGov();
@@ -51,10 +47,9 @@ contract GmxHelper {
         gmxVault = _config.vault;
         glp = _config.glp;
         fsGlp = _config.fsGlp;
-        // fGlp = _config.fGlp;
-        // sbfGmx = _config.sbfGmx;
         glpManager = _config.glpManager;
         positionRouter = _config.positionRouter;
+        usdg = _config.usdg;
         
         nGlp = _nGlp;
         want = _want;
@@ -170,11 +165,6 @@ contract GmxHelper {
         return IGmxVault(gmxVault).getFundingFee(want, size, _fundingRate);
     }
 
-    // function claimableRewards(address _account) public view returns (uint256) {
-    //     uint256 rewards = IRewardTracker(fGlp).claimable(_account);
-    //     return rewards + IRewardTracker(sbfGmx).claimable(_account);
-    // }
-
     function getLastFundingTime() public view returns (uint256) {
         return IGmxVault(gmxVault).lastFundingTimes(want);
     }
@@ -202,7 +192,6 @@ contract GmxHelper {
             return 0;
         } 
         (bool hasProfit, uint256 pnl) = _gmxVault.getDelta(_indexToken, size, avgPrice, false, 0);
-
         return hasProfit ? collateral + pnl : collateral - pnl;
     }
 
@@ -263,5 +252,13 @@ contract GmxHelper {
 
     function getRequestQueueLengths() public view returns (uint256, uint256, uint256, uint256) {
         return IPositionRouter(positionRouter).getRequestQueueLengths();
+    }
+
+    function getFundingInterval() public view returns (uint256) {
+        return IGmxVault(gmxVault).fundingInterval();
+    }
+
+    function getMinExecutionFee() public view returns (uint256) {
+        return IPositionRouter(positionRouter).minExecutionFee();
     }
 }

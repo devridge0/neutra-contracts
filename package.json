@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
-    "test": "hardhat test",
+    "test": "hardhat test --bail",
     "solhint": "solhint -f table contracts/**/*.sol",
     "prettier:solidity": "prettier --write contracts/**/*.sol",
     "prettier-check": "prettier --check contracts/**/*.sol",

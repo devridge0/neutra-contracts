@@ -84,7 +84,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
     }
 
     function setHandlers(address[] memory _handler, bool[] memory _isActive) external onlyGov {
-        for(uint256 i = 0; i < _handler.length; i++){
+        for (uint256 i = 0; i < _handler.length; i++) {
             isHandler[_handler[i]] = _isActive[i];
         }
     }
@@ -228,8 +228,8 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
         uint256 transferredAverageStakedAmount = transferredAverageStakedAmounts[_account];
 
         return
-            (averageStakedAmount * cumulativeReward / totalCumulativeReward) +
-            (transferredAverageStakedAmount * transferredCumulativeReward / totalCumulativeReward);
+            ((averageStakedAmount * cumulativeReward) / totalCumulativeReward) +
+            ((transferredAverageStakedAmount * transferredCumulativeReward) / totalCumulativeReward);
     }
 
     function getPairAmount(address _account, uint256 _esAmount) public view returns (uint256) {
@@ -249,7 +249,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
             return 0;
         }
 
-        return _esAmount * combinedAverageStakedAmount / maxVestableAmount;
+        return (_esAmount * combinedAverageStakedAmount) / maxVestableAmount;
     }
 
     function hasRewardTracker() public view returns (bool) {
@@ -394,7 +394,7 @@ contract Vester is IVester, IERC20, ReentrancyGuard, Governable {
 
         uint256 vestedAmount = getVestedAmount(_account);
 
-        uint256 claimableAmount = vestedAmount * timeDiff / vestingDuration;
+        uint256 claimableAmount = (vestedAmount * timeDiff) / vestingDuration;
 
         if (claimableAmount < balance) {
             return claimableAmount;

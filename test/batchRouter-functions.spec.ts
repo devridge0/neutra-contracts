@@ -5,7 +5,8 @@ import { solidity } from 'ethereum-waffle';
 import { EXECUTION_FEE } from '../shared/constants/constant';
 import { gmxProtocolFixture } from './fixtures/gmx-protocol';
 import { neutraProtocolFixture } from './fixtures/neutra-protocols';
-import { deployContract, expandDecimals, bigNumberify, encode } from '../shared/utils';
+import { deployContract, expandDecimals, bigNumberify, encode, getPriceBits } from '../shared/utils';
+import { executePositionsWithBits } from './helper/utils';
 
 use(solidity)
 
@@ -26,6 +27,7 @@ describe('batchRouter-functions', () => {
     let gmxVault;
     let strategyVault;
     let router;
+    let priceBits;
     
     before(async() => {
         ({nGlp, esNEU, feeNeuGlpTracker, stakedNeuGlpTracker, batchRouter, strategyVault, router} = await neutraProtocolFixture());
@@ -33,6 +35,21 @@ describe('batchRouter-functions', () => {
         [deployer, user0, user1] = await hre.ethers.getSigners();
 
         await batchRouter.setSale(true, true);
+
+        const wbtcPrice = (await gmxVault.getMinPrice(addr.WBTC)).toString();
+        const wethPrice = (await gmxVault.getMinPrice(addr.WETH)).toString();
+        const linkPrice = (await gmxVault.getMinPrice(addr.LINK)).toString();
+        const uniPrice = (await gmxVault.getMinPrice(addr.UNI)).toString();
+
+        const prices = [
+            wbtcPrice.substring(0,wbtcPrice.length-27), 
+            wethPrice.substring(0, wethPrice.length-27), 
+            linkPrice.substring(0, linkPrice.length-27), 
+            uniPrice.substring(0, uniPrice.length-27)
+        ];
+
+        priceBits = getPriceBits(prices);
+
     })
 
     it('reserves deposits - DAI', async () => {
@@ -80,18 +97,8 @@ describe('batchRouter-functions', () => {
 
         await expect(batchRouter.connect(user0).cancelDeposit(expandDecimals(45000, 18)))
             .to.be.revertedWith("BatchRouter: batch under execution");
-
-        const increaseIndex = await positionRouter.increasePositionRequestKeysStart();
-        const decreaseIndex = await positionRouter.decreasePositionRequestKeysStart();
         
-        await fastPriceFeed.connect(keeper).setPricesWithBitsAndExecute(
-            "0x14b6000016430012973300ff6478",
-            1672655456,
-            increaseIndex + 5,
-            decreaseIndex + 5,
-            2,
-            10000
-        )
+        await executePositionsWithBits(positionRouter, fastPriceFeed, keeper, priceBits, 5,5);
         
         await batchRouter.confirmAndDealGlp();
         expect(await batchRouter.currentDepositRound()).eq(2);
@@ -150,18 +157,8 @@ describe('batchRouter-functions', () => {
 
         await expect(batchRouter.connect(user0).cancelWithdraw(expandDecimals(10000, 18)))
             .to.be.revertedWith("BatchRouter: batch under execution");
-
-        const increaseIndex = await positionRouter.increasePositionRequestKeysStart();
-        const decreaseIndex = await positionRouter.decreasePositionRequestKeysStart();
-            
-        await fastPriceFeed.connect(keeper).setPricesWithBitsAndExecute(
-            "0x14b6000016430012973300ff6478",
-            1672655456,
-            increaseIndex + 5,
-            decreaseIndex + 5,
-            2,
-            10000
-        )
+        
+        await executePositionsWithBits(positionRouter, fastPriceFeed, keeper, priceBits, 5, 5);
         
         await batchRouter.confirmAndDealGlp();
     })

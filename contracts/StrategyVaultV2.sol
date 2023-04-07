@@ -183,7 +183,7 @@ contract StrategyVaultV2 is StrategyVault {
         emit InstantRepayFundingFee(_indexToken, fundingFee, prepaidGmxFee);
     }
 
-    function confirmCallback() public {
+    function confirmCallback() public onlyRouter {
         require(!confirmed, "already confirmed");
 
         _confirm();
@@ -211,6 +211,7 @@ contract StrategyVaultV2 is StrategyVault {
     }
 
     function approveToken(address _token, address _spender) external onlyGov {
+        require(_token != address(0) && _spender != address(0), "invalid address");
         IERC20(_token).approve(_spender, type(uint256).max);
     }
 }

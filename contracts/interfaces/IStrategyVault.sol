@@ -32,8 +32,8 @@ interface IStrategyVault {
     function sellNeuGlp(uint256 _glpAmount, address _recipient) external returns (uint256);
 
     function settle(uint256 _amount, address _recipient) external;
-    
-    function exited() external view returns(bool);
+
+    function exited() external view returns (bool);
 
     function usdToTokenMax(address _token, uint256 _usdAmount, bool _isCeil) external returns (uint256);
 
@@ -46,7 +46,7 @@ interface IStrategyVault {
         bool _shouldRepayWeth,
         address _recipient,
         address _callbackTarget
-    ) external payable returns(bytes32, bytes32);
+    ) external payable returns (bytes32, bytes32);
 
     function increaseShortPositionsWithCallback(
         uint256 _wbtcAmountIn,

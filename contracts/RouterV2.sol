@@ -3,6 +3,7 @@
 pragma solidity 0.8.11;
 
 import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import { IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import { IStrategyVault } from "./interfaces/IStrategyVault.sol";
@@ -33,7 +34,7 @@ struct InitialConfig {
 }
 
 
-contract RouterV2 is Governable, Pausable {
+contract RouterV2 is Governable, Pausable, ReentrancyGuard {
     struct PendingStatus {
         address recipient;
         bool isProgress;
@@ -59,20 +60,21 @@ contract RouterV2 is Governable, Pausable {
 
     uint256 constant MINIMUM_WITHDRAWL = 1e16;
     uint256 constant MAX_BPS = 10_000;
+    uint256 constant PRICE_PRECISON = 1e30;
 
-    address public fsGlp;
-    address public snGlp;
-    address public fnGlp;
-    address public nGlp;
-    address public gmxVault;
-    address public stakedGlp;
-    address public glpRewardRouter;
+    address public immutable fsGlp;
+    address public immutable snGlp;
+    address public immutable fnGlp;
+    address public immutable nGlp;
+    address public immutable gmxVault;
+    address public immutable stakedGlp;
+    address public immutable glpRewardRouter;
 
-    address public want;
-    address public wbtc;
-    address public weth;
+    address public immutable want;
+    address public immutable wbtc;
+    address public immutable weth;
 
-    address public strategyVault;
+    address public immutable strategyVault;
     address public gmxHelper;
 
     // callback
@@ -80,10 +82,10 @@ contract RouterV2 is Governable, Pausable {
     address public repayCallbackTarget;
 
     // GMX fee
-    uint256 public executionFee = 0.0001 ether;
     uint256 public marginFeeBasisPoints = 10;
 
     uint256 public targetLeverage = 55_000;
+    uint256 public timeBuffer = 3540;
 
     uint256 public cumulativeMintAmount;
     uint256 public cumulativeBurnAmount;
@@ -104,11 +106,13 @@ contract RouterV2 is Governable, Pausable {
     event SecondCallback(address recipient, bool isIncrease);
     event ExecutionFailed(address recipient, bool fisrtCallbackExecuted, bool isIncrease, bool isRepay);
     event SetCallbackTargets(address executionCallbackTarget, address repayCallbackTarget);
-    event SetExecutionFee(uint256 executionFee);
     event SetTargetLeverage(uint256 taregtLeverage);
     event SetMarginFeeBasisPoints(uint256 bps);
     event SetShortBuffers(uint256 wbtcBuffer, uint256 wethBuffer);
     event SetGmxHelper(address helper);
+    event MintedShare(uint256 share);
+    event RedeemedAmount(uint256 wantAmount, uint256 fsGlpAmount, bool withdrawGlp);
+    event SetTimeBuffer(uint256 buffer);
 
     modifier initialValidate() {
         _initialValidate();
@@ -143,9 +147,12 @@ contract RouterV2 is Governable, Pausable {
      *  This function should not be executed while a deposit or withdrawal is in progress
      * @param _amount the quantity of tokens to deposit
      */
-    function instantDeposit(uint256 _amount) external payable whenNotPaused initialValidate {
-        require(msg.value >= executionFee * 2, "not enough execution fee");
-        
+    function instantDeposit(uint256 _amount) external payable whenNotPaused initialValidate nonReentrant {
+        uint256 minExecutionFee = IGmxHelper(gmxHelper).getMinExecutionFee();
+        require(msg.value >= minExecutionFee * 2, "not enough execution fee");
+
+        _validatePositionQueue();
+
         IStrategyVault(strategyVault).harvest();
 
         _checkLastFundingTime();
@@ -166,7 +173,7 @@ contract RouterV2 is Governable, Pausable {
 
         _validateMaxGlobalShortSize(wbtcSizeDelta, wethSizeDelta);
 
-        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).increaseShortPositionsWithCallback{value: executionFee * 2}(
+        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).increaseShortPositionsWithCallback{value: minExecutionFee * 2}(
             wbtcAmountIn,
             wbtcSizeDelta,
             wethAmountIn,
@@ -177,6 +184,8 @@ contract RouterV2 is Governable, Pausable {
         curWbtcRequestKey = wbtcRequestKey;
         curWethRequestKey = wethRequestkey;
 
+        payable(msg.sender).transfer(address(this).balance);
+
         emit InstantDeposit(msg.sender, _amount);
     }
 
@@ -186,8 +195,11 @@ contract RouterV2 is Governable, Pausable {
      *  This function should not be executed while a deposit or withdrawal is in progress
      * @param _amount the quantity of tokens to deposit
      */
-    function instantDepositGlp(uint256 _amount) external payable whenNotPaused initialValidate {
-        require(msg.value >= executionFee * 2, "not enough execution fee");
+    function instantDepositGlp(uint256 _amount) external payable whenNotPaused initialValidate nonReentrant {
+        uint256 minExecutionFee = IGmxHelper(gmxHelper).getMinExecutionFee();
+        require(msg.value >= minExecutionFee * 2, "not enough execution fee");
+
+        _validatePositionQueue();
 
         IStrategyVault(strategyVault).harvest();
 
@@ -204,6 +216,8 @@ contract RouterV2 is Governable, Pausable {
 
         uint256 unstakeGlpAmount = _amount * (wbtcAmountIn + wethAmountIn) / redemptionAmount;
         
+        IStakedGlp(stakedGlp).transfer(strategyVault, unstakeGlpAmount);
+
         uint256 amountOut = IStrategyVault(strategyVault).sellGlp(unstakeGlpAmount, address(this));
 
         uint256 wbtcAmountInAfterFee = amountOut * wbtcAmountIn / (wbtcAmountIn + wethAmountIn);
@@ -217,7 +231,7 @@ contract RouterV2 is Governable, Pausable {
 
         _mintNeutraGlp(0x0);
 
-        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).increaseShortPositionsWithCallback{value: executionFee * 2}(
+        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).increaseShortPositionsWithCallback{value: minExecutionFee * 2}(
             wbtcAmountInAfterFee,
             wbtcSizeDelta,
             wethAmountInAfterFee,
@@ -227,6 +241,8 @@ contract RouterV2 is Governable, Pausable {
 
         curWbtcRequestKey = wbtcRequestKey;
         curWethRequestKey = wethRequestkey;
+
+        payable(msg.sender).transfer(address(this).balance);
 
         emit InstantDepositGlp(msg.sender, _amount);
     }
@@ -239,9 +255,12 @@ contract RouterV2 is Governable, Pausable {
      * @param _isStaked determines whether input is `snGlp` or `nGlp`
      * @param _withdrawGlp determines wheter output is `fsGlp` or `want`
      */
-    function instantWithdraw(uint256 _amount, bool _isStaked, bool _withdrawGlp) external payable whenNotPaused initialValidate {
-        require(msg.value >= executionFee * 4, "not enough execution fee");
+    function instantWithdraw(uint256 _amount, bool _isStaked, bool _withdrawGlp) external payable whenNotPaused initialValidate nonReentrant {
+        uint256 minExecutionFee = IGmxHelper(gmxHelper).getMinExecutionFee();
+        require(msg.value >= minExecutionFee * 4, "not enough execution fee");
         require(_amount >= MINIMUM_WITHDRAWL, "insufficient _amount");
+
+        _validatePositionQueue();
 
         // should harvest first in order to withdraw managementFee before withdraw action
         IStrategyVault(strategyVault).harvest();
@@ -252,23 +271,20 @@ contract RouterV2 is Governable, Pausable {
         if (_isStaked) {
             IRewardTracker(snGlp).unstakeForAccount(msg.sender, fnGlp, _amount, msg.sender);
             IRewardTracker(fnGlp).unstakeForAccount(msg.sender, nGlp, _amount, address(this));
+        } else {
+            IERC20(nGlp).transferFrom(msg.sender, address(this), _amount);
         }
 
-        uint256 totalSupply = IERC20(nGlp).totalSupply();
-
-        (uint256 wbtcSizeDelta, uint256 wbtcCollateralDelta, bool shouldRepayWbtc) = getWithdrawParams(_amount, totalSupply, wbtc);
-        (uint256 wethSizeDelta, uint256 wethCollateralDelta, bool shouldRepayWeth) = getWithdrawParams(_amount, totalSupply, weth);
-
-        if (shouldRepayWbtc || shouldRepayWeth){
-            _validatePositionQueue();
-        }
+        (uint256 wbtcSizeDelta, uint256 wbtcCollateralDelta, bool shouldRepayWbtc) = getWithdrawParams(_amount, pendingStatus.totalSupplyBefore, wbtc);
+        (uint256 wethSizeDelta, uint256 wethCollateralDelta, bool shouldRepayWeth) = getWithdrawParams(_amount, pendingStatus.totalSupplyBefore, weth);
 
         uint256 totalBalance = IERC20(fsGlp).balanceOf(strategyVault);
-        uint256 unstakeGlpAmount = totalBalance * _amount / totalSupply;
+        uint256 unstakeGlpAmount = totalBalance * _amount / pendingStatus.totalSupplyBefore;
 
         if (_withdrawGlp) {
-            _validateMaxGlpAmountIn(wbtcCollateralDelta + wethCollateralDelta);
+            // _validateMaxGlpAmountIn(wbtcCollateralDelta + wethCollateralDelta);
             IStakedGlp(stakedGlp).transferFrom(strategyVault, address(this), unstakeGlpAmount);
+
             pendingStatus.withdrawGlp = true;
         } else {
             IStrategyVault(strategyVault).sellGlp(unstakeGlpAmount, address(this));
@@ -277,14 +293,14 @@ contract RouterV2 is Governable, Pausable {
         _burnNeutraGlp();
 
         if (shouldRepayWbtc) {
-            IStrategyVault(strategyVault).instantRepayFundingFee{value: executionFee}(wbtc, repayCallbackTarget);
+            IStrategyVault(strategyVault).instantRepayFundingFee{value: minExecutionFee}(wbtc, repayCallbackTarget);
         }
 
         if (shouldRepayWeth) {
-            IStrategyVault(strategyVault).instantRepayFundingFee{value: executionFee}(weth, repayCallbackTarget);
+            IStrategyVault(strategyVault).instantRepayFundingFee{value: minExecutionFee}(weth, repayCallbackTarget);
         }
 
-        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).decreaseShortPositionsWithCallback{value: executionFee * 2}(
+        (bytes32 wbtcRequestKey, bytes32 wethRequestkey) = IStrategyVault(strategyVault).decreaseShortPositionsWithCallback{value: minExecutionFee * 2}(
             wbtcCollateralDelta, 
             wbtcSizeDelta, 
             wethCollateralDelta, 
@@ -348,6 +364,7 @@ contract RouterV2 is Governable, Pausable {
             IRewardTracker(fnGlp).stakeForAccount(address(this), recipient, nGlp, cumulativeMintAmount);
             IRewardTracker(snGlp).stakeForAccount(recipient, recipient, fnGlp, cumulativeMintAmount);
 
+            emit MintedShare(cumulativeMintAmount);
             cumulativeMintAmount = 0;
         } else {
             uint256 remainingAmount = IERC20(nGlp).balanceOf(address(this));
@@ -355,12 +372,21 @@ contract RouterV2 is Governable, Pausable {
 
             uint256 balance = IERC20(want).balanceOf(address(this));
 
+            // To minimize the risk of failure, we'll be withdrawing for both GLP and DAI. 
+            // Additionally, this action should significantly reduce fees
             if(pendingStatus.withdrawGlp) {
-                IRewardRouter(glpRewardRouter).mintAndStakeGlp(want, balance, 0, 0);
-                IStakedGlp(stakedGlp).transfer(recipient, IERC20(fsGlp).balanceOf(address(this)));
+                // IRewardRouter(glpRewardRouter).mintAndStakeGlp(want, balance, 0, 0);
+                IERC20(want).transfer(recipient, balance);
+
+                uint256 fsGlpAmount = IERC20(fsGlp).balanceOf(address(this));
+                IStakedGlp(stakedGlp).transfer(recipient, fsGlpAmount);
+
+                emit RedeemedAmount(balance, fsGlpAmount, true);
                 pendingStatus.withdrawGlp = false;
             } else {
                 IERC20(want).transfer(recipient, balance);
+
+                emit RedeemedAmount(balance, 0, false);
             }
             
             cumulativeBurnAmount = 0;
@@ -409,14 +435,16 @@ contract RouterV2 is Governable, Pausable {
         uint256 positionFee = sizeDelta * marginFeeBasisPoints / MAX_BPS;
         uint256 fundingFee = IGmxHelper(gmxHelper).getFundingFee(strategyVault, _indexToken);
 
+        uint256 collateralDelta;
+        bool shouldRepay;
         if(!profitParam.hasProfit) {
-            uint256 collateralDelta = (positionParam.collateral - profitParam.pnl) * _amount / _totalSupply;
-            bool shouldRepay = fundingFee + positionFee > usdOut + collateralDelta;
+            collateralDelta = (positionParam.collateral - profitParam.pnl) * _amount / _totalSupply;
+            shouldRepay = fundingFee + positionFee > usdOut + collateralDelta;
             return (sizeDelta, collateralDelta, shouldRepay);
         }
 
-        uint256 collateralDelta = positionParam.collateral * _amount / _totalSupply;
-        bool shouldRepay = fundingFee + positionFee > usdOut + collateralDelta;
+        collateralDelta = positionParam.collateral * _amount / _totalSupply;
+        shouldRepay = fundingFee + positionFee > usdOut + collateralDelta;
         return (sizeDelta, collateralDelta, shouldRepay);
     }
 
@@ -442,7 +470,11 @@ contract RouterV2 is Governable, Pausable {
             uint256 currentValue = _gmxHelper.getLongValue(IERC20(fsGlp).balanceOf(strategyVault));
             increasedValue = currentValue - pendingStatus.longValueBefore;
 
-            mintAmount = increasedValue * pendingStatus.totalSupplyBefore / pendingStatus.totalValueBefore;
+            uint256 totalValueBefore = pendingStatus.totalValueBefore;
+
+            mintAmount = totalValueBefore == 0 ?
+                increasedValue * IERC20(nGlp).decimals() / PRICE_PRECISON : 
+                increasedValue * pendingStatus.totalSupplyBefore / totalValueBefore;
 
             IMintable(nGlp).mint(address(this), mintAmount);
             cumulativeMintAmount = mintAmount;
@@ -453,7 +485,11 @@ contract RouterV2 is Governable, Pausable {
             (,uint256 collateral,,,,,,) = _gmxHelper.getPosition(strategyVault, wbtc);
             increasedValue = collateral - pendingStatus.wbtcCollateralBefore;
             
-            mintAmount = increasedValue * pendingStatus.totalSupplyBefore / pendingStatus.totalValueBefore;
+            uint256 totalValueBefore = pendingStatus.totalValueBefore;
+
+            mintAmount = totalValueBefore == 0 ?
+                increasedValue * IERC20(nGlp).decimals() / PRICE_PRECISON : 
+                increasedValue * pendingStatus.totalSupplyBefore / totalValueBefore;
 
             IMintable(nGlp).mint(address(this), mintAmount);
             cumulativeMintAmount += mintAmount;
@@ -464,7 +500,11 @@ contract RouterV2 is Governable, Pausable {
             (,uint256 collateral,,,,,,) = _gmxHelper.getPosition(strategyVault, weth);
             increasedValue = collateral - pendingStatus.wethCollateralBefore;
 
-            mintAmount = increasedValue * pendingStatus.totalSupplyBefore / pendingStatus.totalValueBefore;
+            uint256 totalValueBefore = pendingStatus.totalValueBefore;
+
+            mintAmount = totalValueBefore == 0 ?
+                increasedValue * IERC20(nGlp).decimals() / PRICE_PRECISON : 
+                increasedValue * pendingStatus.totalSupplyBefore / totalValueBefore;
 
             IMintable(nGlp).mint(address(this), mintAmount);
             cumulativeMintAmount += mintAmount;
@@ -476,32 +516,43 @@ contract RouterV2 is Governable, Pausable {
         uint256 totalValue = IStrategyVault(strategyVault).totalValue();
         uint256 totalValueBefore = pendingStatus.totalValueBefore;
         uint256 decreasedValue = totalValueBefore < totalValue ? 0 : totalValueBefore - totalValue;
+        
+        if (decreasedValue == 0) {
+            return;
+        }
+
         uint256 burnAmount = decreasedValue * pendingStatus.totalSupplyBefore / totalValueBefore;
-
-        IMintable(nGlp).burn(address(this), burnAmount - cumulativeBurnAmount);
-
-        cumulativeBurnAmount = burnAmount;
+        uint256 nGlpBalance = IERC20(nGlp).balanceOf(address(this));
+        if (nGlpBalance <= burnAmount - cumulativeBurnAmount) {
+            IMintable(nGlp).burn(address(this), nGlpBalance);
+            cumulativeBurnAmount += nGlpBalance;
+        } else {
+            IMintable(nGlp).burn(address(this), burnAmount - cumulativeBurnAmount);
+            cumulativeBurnAmount = burnAmount;
+        }
     }
 
     function _checkLastFundingTime() internal {
-        uint256 lastFundingTime = IGmxHelper(gmxHelper).getLastFundingTime();
-        if (lastFundingTime + 3600 <= block.timestamp) {
+        IGmxHelper _gmxHelper = IGmxHelper(gmxHelper);
+        uint256 lastFundingTime = _gmxHelper.getLastFundingTime();
+        uint256 fundingInterval = _gmxHelper.getFundingInterval();
+        if (lastFundingTime + fundingInterval <= block.timestamp) {
             IVault(gmxVault).updateCumulativeFundingRate(want);
         }
     }
 
-    function _validateMaxGlobalShortSize(uint256 _wbtcSizeDelta, uint256 _wethSizeDelta) internal {
+    function _validateMaxGlobalShortSize(uint256 _wbtcSizeDelta, uint256 _wethSizeDelta) internal view {
         IGmxHelper _gmxHelper = IGmxHelper(gmxHelper);
 
         uint256 wbtcAvailableSize = _gmxHelper.getAvailableShortSize(wbtc);
-        require(wbtcAvailableSize > _wbtcSizeDelta + shortBuffers[wbtc], "OI limit passed");
+        require(wbtcAvailableSize > _wbtcSizeDelta + shortBuffers[wbtc], "OI limit exceeded");
 
         uint256 wethAvailableSize = _gmxHelper.getAvailableShortSize(weth);
-        require(wethAvailableSize > _wethSizeDelta + shortBuffers[weth], "OI limit passed");
+        require(wethAvailableSize > _wethSizeDelta + shortBuffers[weth], "OI limit exceeded");
     }
 
-    function _validateMaxGlpAmountIn(uint256 _collateralDelta) internal {
-        uint256 amount = IStrategyVault(strategyVault).usdToTokenMax(want, _collateralDelta, true);
+    function _validateMaxGlpAmountIn(uint256 _collateralDelta) internal view {
+        uint256 amount = usdToTokenMax(want, _collateralDelta, true);
         uint256 usdgAmount = IGmxHelper(gmxHelper).adjustDecimalsToUsdg(amount, want);
         uint256 availableUsdgAmount = IGmxHelper(gmxHelper).getAvailableGlpAmountIn(want);
         require(availableUsdgAmount > usdgAmount, "max usdgAmount exceeded");
@@ -513,7 +564,7 @@ contract RouterV2 is Governable, Pausable {
     // then it will be executed after first N decrease orders
     // if both queues are empty (or increase queue is empty)
     // increase positions should be always executed first
-    function _validatePositionQueue() internal {
+    function _validatePositionQueue() internal view {
         (
             uint256 increasePositionRequestKeysStart, 
             uint256 increasePositionRequestKeysLength,,
@@ -552,7 +603,7 @@ contract RouterV2 is Governable, Pausable {
         }
     }
 
-    function _initialValidate() internal {
+    function _initialValidate() internal view {
         require(!pendingStatus.isProgress, "in the middle of progress");
         require(block.timestamp % 3600 <= 3480, "try a bit later");
     }
@@ -596,14 +647,10 @@ contract RouterV2 is Governable, Pausable {
     }
 
     function setCallbackTargets(address _executionCallbackTarget, address _repayCallbackTarget) external onlyGov {
+        require( _executionCallbackTarget != address(0) && _repayCallbackTarget != address(0));
         executionCallbackTarget = _executionCallbackTarget;
         repayCallbackTarget = _repayCallbackTarget;
         emit SetCallbackTargets(_executionCallbackTarget, _repayCallbackTarget);
-    }
-
-    function setExecutionFee(uint256 _fee) external onlyGov {
-        executionFee = _fee;
-        emit SetExecutionFee(_fee);
     }
 
     function setTargetLeverage(uint256 _lev) external onlyGov {
@@ -617,14 +664,21 @@ contract RouterV2 is Governable, Pausable {
     }
 
     function setShortBuffers(uint256 _wbtcBuffer, uint256 _wethBuffer) external onlyGov {
-        shortBuffers[wbtc] = _wbtcBuffer;
-        shortBuffers[weth] = _wethBuffer;
+        shortBuffers[wbtc] = _wbtcBuffer; // 30 decimals
+        shortBuffers[weth] = _wethBuffer; // 30 decimals
         emit SetShortBuffers(_wbtcBuffer, _wethBuffer);
     }
 
     function setGmxHelper(address _helper) external onlyGov {
+        require(_helper != address(0), "invalid address");
         gmxHelper = _helper;
         emit SetGmxHelper(_helper);
+    }
+
+    function setTimeBuffer(uint256 _buffer) external onlyGov {
+        require(_buffer >= 3640, "buffer too low");
+        timeBuffer = _buffer;
+        emit SetTimeBuffer(_buffer);
     }
 
     function pause() external onlyGov {
@@ -634,4 +688,17 @@ contract RouterV2 is Governable, Pausable {
     function unpause() external onlyGov {
         _unpause();
     }
+
+    function usdToTokenMax(address _token, uint256 _usdAmount, bool _isCeil) public view returns(uint256) {
+        if (_usdAmount == 0) { return 0; }
+        uint256 price = IGmxHelper(gmxHelper).getPrice(_token, false);
+        uint256 decimals = IERC20(_token).decimals();
+        return _isCeil ? ceilDiv(_usdAmount * (10 ** decimals), price) : _usdAmount * (10 ** decimals) / price;
+    }
+
+    function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        // (a + b - 1) / b can overflow on addition, so we distribute.
+        return a == 0 ? 0 : (a - 1) / b + 1;
+    }
+
 }
