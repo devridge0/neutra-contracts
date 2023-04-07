@@ -10,6 +10,8 @@ import { IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import { IERC20 } from "./interfaces/IERC20.sol";
 import { IMintable } from "./interfaces/IMintable.sol";
 
+
+/// deprecated
 contract Router is ReentrancyGuard, Governable {
     bool public isSale;
     bool public initialDeposit;
@@ -77,9 +79,9 @@ contract Router is ReentrancyGuard, Governable {
 
     /*
     NOTE:
-    GMX requires two part transaction process to increase or decrease positions
+    GMX requires two transaction to increase or decrase positions
     therefore, router has to conduct two transactions to finish the process
-    always execute this function first then confirm and handle glp
+    always execute positions first then confrim and handle glp
     */
     function executePositionsBeforeDealGlp(uint256 _amount, bytes[] calldata _params, bool _isWithdraw) external payable onlyHandler {
         if (!_isWithdraw) {
@@ -109,7 +111,7 @@ contract Router is ReentrancyGuard, Governable {
     /*
     NOTE:
     After positions execution, requires to confirm those postiions
-    If positions are executed successfully, then buys glp
+    If positions executed successfully, handles glp
     */
     function confirmAndBuy(uint256 _wantAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmountsWant = pendingAmounts[want];
@@ -138,7 +140,7 @@ contract Router is ReentrancyGuard, Governable {
     /*
     NOTE:
     After positions execution, requires to confirm those postiions
-    If positions are executed successfully, then sells glp
+    If positions executed successfully, handles glp
     */
     function confirmAndSell(uint256 _glpAmount, address _recipient) external onlyHandler returns (uint256) {
         uint256 pendingAmount = pendingAmounts[nGlp];
@@ -164,7 +166,7 @@ contract Router is ReentrancyGuard, Governable {
         return amountOut;
     }
 
-    // call only if strategy is exited
+    // executed only if strategy exited
     // make sure to withdraw insuranceFund and withdraw fees beforehand
     function settle(uint256 _amount) external {
         require(IStrategyVault(strategyVault).exited(), "Router: strategy not exited yet");

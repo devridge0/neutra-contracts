@@ -19,6 +19,8 @@ interface IGmxHelper {
 
     function getLongValue(uint256 _glpAmount) external view returns (uint256);
 
+    function getLongValueInUsdg(uint256 _glpAmount) external view returns (uint256);
+
     function getShortValue(address _account, address _indexToken) external view returns (uint256);
 
     function getMintBurnFeeBasisPoints(
@@ -46,5 +48,17 @@ interface IGmxHelper {
 
     function getDelta(address _indexToken, uint256 _size, uint256 _avgPrice) external view returns (bool, uint256);
 
+    function getAvailableShortSize(address _indexToken) external view returns (uint256);
+
+    function getAvailableGlpAmountIn(address _token) external view returns (uint256);
+
     function validateMaxGlobalShortSize(address _indexToken, uint256 _sizeDelta) external view returns (bool);
+
+    function getAum(bool _maximise) external view returns (uint256);
+
+    function adjustDecimalsToUsdg(uint256 _amount, address _token) external view returns (uint256);
+
+    function adjustDecimalsFromUsdg(uint256 _amount, address _token) external view returns (uint256);
+
+    function getRequestQueueLengths() external view returns (uint256, uint256, uint256, uint256);
 }

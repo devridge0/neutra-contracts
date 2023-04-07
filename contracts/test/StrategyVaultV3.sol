@@ -49,7 +49,8 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
     uint256 constant SECS_PER_YEAR = 31_536_000;
     uint256 constant MAX_BPS = 10_000;
     uint256 constant PRECISION = 1e30;
-    uint256 constant MAX_MANAGEMENT_FEE = 500;
+    uint256 constant MAX_MANAGEMENT_FEE = 500_000_000;
+    uint256 constant MANAGEMENT_FEE_BPS = 10_000_000_000;
 
     bool public confirmed;
     bool public initialDeposit;
@@ -575,7 +576,7 @@ contract StrategyVaultV3 is Initializable, UUPSUpgradeable {
         }
         uint256 duration = block.timestamp - _lastCollect;
         uint256 supply = IERC20(nGlp).totalSupply() - IERC20(nGlp).balanceOf(management);
-        uint256 alpha = supply * MAX_BPS / (MAX_BPS - (managementFee * duration / SECS_PER_YEAR)) - supply;
+        uint256 alpha = supply * MANAGEMENT_FEE_BPS / (MANAGEMENT_FEE_BPS - (managementFee * duration / SECS_PER_YEAR)) - supply;
         if (alpha == 0) {
             return;
         }

@@ -41,6 +41,12 @@ interface IVault {
 
     function getRedemptionAmount(address _token, uint256 _usdgAmount) external view returns (uint256);
 
+    function usdgAmounts(address _token) external view returns (uint256);
+
+    function maxUsdgAmounts(address _token) external view returns (uint256);
+
+    function adjustForDecimals(uint256 _amount, address _tokenDiv, address _tokenMul) external view returns (uint256);
+
     function getDelta(
         address _indexToken,
         uint256 _size,

@@ -10,6 +10,7 @@ import {IERC20} from "./interfaces/IERC20.sol";
 import {IRewardTracker} from "./interfaces/IRewardTracker.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 
+/// deprecatd
 contract BatchRouter is Initializable, UUPSUpgradeable {
     bool public executed;
     bool public isPublicSale;

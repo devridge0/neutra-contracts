@@ -11,7 +11,7 @@ abstract contract MintableERC20 is ERC20 {
     mapping (address => bool) public isHandler;
 
     modifier onlyGov() {
-        require(gov == _msgSender(), "MintalbeERC20: forbidden");
+        require(gov == _msgSender(), "MintableERC20: forbidden");
         _;
     }
     

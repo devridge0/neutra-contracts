@@ -12,6 +12,8 @@ struct GmxConfig {
     address vault;
     address glp;
     address fsGlp;
+    // address fGlp;
+    // address sbfGmx;
     address glpManager;
     address positionRouter;
     address usdg;
@@ -29,7 +31,9 @@ contract GmxHelper {
     address public gmxVault;
     address public glp;
     address public fsGlp;
+    // address public fGlp;
     address public nGlp;
+    // address public sbfGmx;
     address public glpManager;
     address public positionRouter;
     address public usdg;
@@ -47,6 +51,8 @@ contract GmxHelper {
         gmxVault = _config.vault;
         glp = _config.glp;
         fsGlp = _config.fsGlp;
+        // fGlp = _config.fGlp;
+        // sbfGmx = _config.sbfGmx;
         glpManager = _config.glpManager;
         positionRouter = _config.positionRouter;
         
@@ -54,6 +60,10 @@ contract GmxHelper {
         want = _want;
         wbtc = _wbtc;
         weth = _weth;
+    }
+
+    function getAum(bool _maximise) public view returns (uint256) {
+        return IGlpManager(glpManager).getAum(_maximise);
     }
 
     function getAumInUsdg(bool _maximise) public view returns (uint256) {
@@ -160,6 +170,11 @@ contract GmxHelper {
         return IGmxVault(gmxVault).getFundingFee(want, size, _fundingRate);
     }
 
+    // function claimableRewards(address _account) public view returns (uint256) {
+    //     uint256 rewards = IRewardTracker(fGlp).claimable(_account);
+    //     return rewards + IRewardTracker(sbfGmx).claimable(_account);
+    // }
+
     function getLastFundingTime() public view returns (uint256) {
         return IGmxVault(gmxVault).lastFundingTimes(want);
     }
@@ -174,6 +189,12 @@ contract GmxHelper {
         return aum * _glpAmount / totalSupply;
     }
 
+    function getLongValueInUsdg(uint256 _glpAmount) public view returns (uint256) {
+        uint256 totalSupply =IERC20(glp).totalSupply();
+        uint256 aumInUsdg = getAumInUsdg(false);
+        return aumInUsdg * _glpAmount / totalSupply;
+    }
+
     function getShortValue(address _account, address _indexToken) public view returns (uint256) {
         IGmxVault _gmxVault = IGmxVault(gmxVault);
         (uint256 size, uint256 collateral, uint256 avgPrice,,,,,) = getPosition(_account , _indexToken);
@@ -181,6 +202,7 @@ contract GmxHelper {
             return 0;
         } 
         (bool hasProfit, uint256 pnl) = _gmxVault.getDelta(_indexToken, size, avgPrice, false, 0);
+
         return hasProfit ? collateral + pnl : collateral - pnl;
     }
 
@@ -216,5 +238,30 @@ contract GmxHelper {
         uint256 maxGlobalShortSize = IPositionRouter(positionRouter).maxGlobalShortSizes(_indexToken);
         uint256 globalShortSize = IGmxVault(gmxVault).globalShortSizes(_indexToken);
         return maxGlobalShortSize > (globalShortSize + _sizeDelta);
+    }
+
+    function getAvailableShortSize(address _indexToken) public view returns (uint256) {
+        uint256 maxGlobalShortSize = IPositionRouter(positionRouter).maxGlobalShortSizes(_indexToken);
+        uint256 globalShortSize = IGmxVault(gmxVault).globalShortSizes(_indexToken);
+        return maxGlobalShortSize > globalShortSize ? maxGlobalShortSize - globalShortSize : 0;
+    }
+
+    function getAvailableGlpAmountIn(address _token) public view returns (uint256) {
+        IGmxVault _gmxVault = IGmxVault(gmxVault);
+        uint256 usdgAmount = _gmxVault.usdgAmounts(_token);
+        uint256 maxUsdgAmount = _gmxVault.maxUsdgAmounts(_token);
+        return maxUsdgAmount > usdgAmount ? maxUsdgAmount - usdgAmount : 0;
+    }
+
+    function adjustDecimalsToUsdg(uint256 _amount, address _token) public view returns (uint256) {
+        return IGmxVault(gmxVault).adjustForDecimals(_amount, _token, usdg);
+    }
+
+    function adjustDecimalsFromUsdg(uint256 _amount, address _token) public view returns (uint256) {
+        return IGmxVault(gmxVault).adjustForDecimals(_amount, usdg, _token);
+    }
+
+    function getRequestQueueLengths() public view returns (uint256, uint256, uint256, uint256) {
+        return IPositionRouter(positionRouter).getRequestQueueLengths();
     }
 }

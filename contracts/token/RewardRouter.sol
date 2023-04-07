@@ -179,9 +179,7 @@ contract RewardRouter is ReentrancyGuard, Governable {
         uint256 esNeuAmount = 0;
 
         if (_shouldClaimEsNeu) {
-            uint256 esNeuAmount0 = IRewardTracker(stakedNeuTracker).claimForAccount(account, account);
-            uint256 esNeuAmount1 = IRewardTracker(stakedNeuGlpTracker).claimForAccount(account, account);
-            esNeuAmount = esNeuAmount0 + esNeuAmount1;
+            esNeuAmount = IRewardTracker(stakedNeuTracker).claimForAccount(account, account);
         }
 
         if (_shouldStakeEsNeu && esNeuAmount > 0) {
