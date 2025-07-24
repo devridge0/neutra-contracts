@@ -8,7 +8,7 @@ A collection of smart contracts for the Neutra project, focused on decentralized
 - [Features](#features)  
 - [Prerequisites](#prerequisites)  
 - [Installation](#installation)  
-- [Usage](#usage)  
+- [Run](#run)  
 - [Testing](#testing)  
 - [Deployment](#deployment)  
 - [Contributing](#contributing)  
@@ -35,20 +35,10 @@ Neutra Contracts provide the core on-chain logic for privacy-focused decentraliz
 
 ## Installation
 
-Clone this repository:
+Follow these steps to set up the Neutra Contracts project on your local machine:
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/devridge0/neutra-contracts.git
 cd neutra-contracts
-
-## Run
-
-Follow these steps to run and interact with the Neutra Contracts locally or on a testnet:
-
-### 1. Start a local blockchain node (optional)
-
-You can use Hardhat’s built-in local node for testing and development:
-
-```bash
-npx hardhat node
-
