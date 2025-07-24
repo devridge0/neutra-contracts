@@ -40,3 +40,15 @@ Clone this repository:
 ```bash
 git clone https://github.com/devridge0/neutra-contracts.git
 cd neutra-contracts
+
+## Run
+
+Follow these steps to run and interact with the Neutra Contracts locally or on a testnet:
+
+### 1. Start a local blockchain node (optional)
+
+You can use Hardhat’s built-in local node for testing and development:
+
+```bash
+npx hardhat node
+
